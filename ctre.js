@@ -61,11 +61,16 @@ CT.prototype.getText3 = function () {
 
 CT.prototype.re_scouring = 
 /.{5}(?:(?:\u007F....)+\u0008....)*\u0008....(?:[\u007F\u0008]....)*|(.{5})(?:[\u007F\u0008]....)*/g;
+CT.prototype.re_weave5c = /^\u00010000((?:...[^0].)*)\u00040001((?:.{5})*)$/;
 // any deleted and undeleted but finally deleted    OR    whatever
 /** Text5c is derived from weave5c by scouring. */
 CT.prototype.getText5c = function () {
     if (this.text5c) return this.text5c;
-    this.text5c = this.weave5c.replace(this.re_scouring,"$1");
+    var parse = this.weave5c.match(this.re_weave5c);
+    if (!parse) throw "weave format error";
+    var body = parse[0];
+    var stash = parse[1];
+    this.text5c =  body.replace(this.re_scouring,"$1");
     return this.text5c;
 }
 
@@ -108,7 +113,7 @@ CT.dryWeft2 = function (weft2) {
     return dered;
 }
 
-CT.prototype.re_trans = /(?:....)*?(..)($W)/g;
+CT.prototype.re_trans = /(..)($W)|..../g;
 /** Make a transitive closure of causal dependencies; return a closed weft. */
 CT.prototype.closeWeft2 = function (weft2) {
     var w2 = null;
@@ -136,13 +141,15 @@ CT.prototype.getSortedYarnIds = function () {
 
 /** Returns the last known offset in the yarn, an empty string otherwise. */
 CT.getYarnLength = function (weft2,yarnid) {
-    if (!yarnid) throw "no yarn id provided";
+    if (!yarnid)
+        throw "no yarn id provided";
     var m = weft2.match("^(?:..)*?"+yarnid+"(.)");
     return m ? m[1] : '';
 }
 
 CT.prototype.re_form2 = /../g;
-CT.prototype.re_w2diff = /(..)\1|(.).(\1).|(.)./g;
+CT.prototype.re_w2diff = /(..)\1|(.).(\2).|(.)./g;
+CT.prototype.re_notinset = /[^$S]/g;
 /** Compare two weft2s according to the weftI-ordering (see the paper). */
 CT.prototype.compareWeft1 = function (weft2a,weft2b) {
     var split = (weft2a+weft2b).match(this.re_form2);
@@ -150,8 +157,7 @@ CT.prototype.compareWeft1 = function (weft2a,weft2b) {
     var diff = sorted.replace(this.re_w2diff,"$3$4");
     if (!diff)
         return 0;
-    var re_diff_yarnid = CT.escapeMeta(diff.replace(/./g,"|$&").substr(1));
-    var re_srch = new RegExp("[^"+re_diff_yarnid+"]","g");
+    var re_srch = this.re_notinset.fill({'S':CT.escapeMeta(diff)});
     var srt_diff = this.getSortedYarnIds().replace(re_srch,"");
     var win = srt_diff.charAt(srt_diff.length-1);
     return CT.getYarnLength(weft2a,win) > CT.getYarnLength(weft2a,win) ? 1 : -1;
@@ -170,7 +176,7 @@ CT.prototype.getYarnAwareness = function (yarnid) {
 }
 
 CT.prototype.re_causal_block =
-    /^((?:.{5})*)(...$R)((?:.$R..(?:.{5})*?)*)(.$W.*)$/;
+    /^((?:.{5})*?)(...$R)((?:.$R..(?:.{5})*?)*)(.(?:$W).*)$/;
 CT.prototype.re_siblings = /.$R..(?:.{5})*?(?=.$R..|$)/g;
 /** In case optimizations fail, the weave is patched using this method.
     It involves complex parsing and building of closed weft1, i.e. is
@@ -187,11 +193,11 @@ CT.prototype.addChunk5cHardcore = function (chunk5c) {
     var attach = split[2];
     var caused = split[3];
     var end = split[4];
-    var head_aw_weft = this.closeWeft2(head);
+    var head_aw_weft = this.closeWeft2(head+chunk5c.substr(1,2));
     var siblings = caused.match(this.re_siblings.fill({'R':root}));
     var i=0;
     for(; i<siblings.length; i++) {
-        var sib_aw_weft = this.getAwareness(siblings[i].substr(3,2));
+        var sib_aw_weft = this.closeWeft2(siblings[i].substr(3,2));
         if (this.compareWeft1(head_aw_weft,sib_aw_weft)==1)
             break;
     }
@@ -214,7 +220,7 @@ CT.prototype.addChunk5c = function (chunk5c) {
     if (this.getYarnLength(head[0])>=head[1])
         throw "repeated chunk";
     var aware = this.getYarnAwareness(head[0]);
-    var re_aware = CT.getFiltre(aware);
+    var re_aware = CT.getFiltre(aware+cause);
     var re_find = this.re_patch.fill({'C':CT.escapeMeta(cause),'A':re_aware});
     var new_weave5c = this.weave5c.replace(re_find,"$1$2"+chunk5c+"$3");
     if (new_weave5c.length!=this.weave5c.length+chunk5c.length)
@@ -222,17 +228,49 @@ CT.prototype.addChunk5c = function (chunk5c) {
     return new_weave5c;
 }
 
-CT.prototype.re_chunk = /...(?:(..).\1)*../g;  // the Spui regex
+CT.prototype.re_findvictim = /(.{5})*?...($M)/g;
+CT.prototype.re_form5c = /...../g;
+CT.prototype.addDeletionChunk5c = function (chunk5c) {
+    var ids = CT.escapeMeta(chunk5c.replace(this.re5ctoid,"$1"));
+    var re_ids = ids.match(CT.re_filt).join('|');
+    var re_victim = this.re_findvictim.fill({'M':re_ids});
+    var atoms = chunk5c.match(this.re_form5c);
+    function append_bsp (match,id) {
+        // preferably, deletion atoms should be put left-to-right; TODO sep ack
+        var atom=memo[id];
+        while ( !atom ) {
+            var bsp = atoms.pop();
+            var cause = bsp.substr(1,2);
+            if (cause==id)
+                atom = bsp;
+            else
+                memo[cause] = bsp;
+        }
+        return match + atom;
+    }
+    var w5c = this.weave5c.replace (this.re_victim,append_bsp);
+    return w5c;
+}
+
+CT.prototype.re_chunk =
+    /(?:\u0008....)*|...(?:(..).\1)*../g;  // the Spui regex
 /** The only method that mutates weave5c. Takes an array of atoms (patch5c),
     splits it into causality chains, applies chains to the weave. */
 CT.prototype.addPatch5c = function (patch5c) {
     this.text5c = this.text3 = this.text1 = undefined;
     var chunks = patch5c.match(this.re_chunk);
     for(var i=0; i<chunks.length; i++) {
-        var w5c = this.addChunk5c(chunks[i]) || this.addChunk5cHardcore(chunks[i]);
-        this.weave5c = w5c;
-        var yarn_id = chunks[i][3];
-        this.awareness[yarn_id] = undefined; //CT.dryWeft2(this.getAwareness(yarn_id)+cause);
+        var chunk = chunks[i];
+        if (chunk[0]==='\u0008') { // deletion
+            this.weave5c = this.addDeletionChunk5c(chunk);
+        } else if (chunk[0]==='\u0006') { // awareness
+            this.weave5c += chunk;
+        } else {
+            this.weave5c = this.addChunk5c(chunk) || 
+                this.addChunk5cHardcore(chunk);
+        }
+        var yarn_id = chunk[3];
+        this.awareness[yarn_id] = undefined;
         this.weft2 = undefined; // TODO perf 
         this.deps4c = undefined;
     }
@@ -282,6 +320,14 @@ CT.prototype.getPlainText = function () {
     return this.getText1().replace(this.re_ctremeta,'');
 }
 
+//CT.re_f = /($Y[0-$O])|../g;
+CT.weft2Covers = function (weft2, atom) {
+    //var re_fd = CT.re_f.fill({'Y':atom[0],'O':atom[1]});
+    var re_fd = new RegExp("("+atom[0]+"[^0-"+atom[1]+"])|..","g");
+    var cover = weft2.replace(re_fd,"$1");
+    return cover;
+}
+
 CT.prototype.re_del3to5 = /.(..)/g;
 /** Serialize text changes as a patch. Changes are detected using simple
   * heuristics (TODO: diff-match-patch). 
@@ -293,6 +339,7 @@ CT.prototype.getDiffAsPatch3c = function (text1,yarn_url,weft2) {
     var base = weft2 ? this.getVersion(weft2) : this;
     var base3 = base.getText3();
     var base1 = base.getText1();
+    var yarn_id = this.yarns[yarn_url];
     if (text1===base1)
         return this.getWeft2();
     var pref = Math.min(text1.length,base1.length);
@@ -314,10 +361,15 @@ CT.prototype.getDiffAsPatch3c = function (text1,yarn_url,weft2) {
         postf = (postf>>1) + (postf>1?postf&1:0);
     }
     var changes3c = [];
+    var that = this;
     function append_insertion (offset, text) {
         //sibling check goes here
-        var head = base3.substr(offset*3+1-3,2);
-        changes3c.push(text.charAt(0)+head);
+        var cause = base3.substr(offset*3+1-3,2);
+        var sibl = base3.substr(offset*3+4-3,2);
+        var w2 = that.getYarnAwareness(yarn_id);
+        if (!CT.weft2Covers(w2,sibl))
+            changes3c.push('\u0006'+sibl);
+        changes3c.push(text.charAt(0)+cause);
         changes3c.push(text.substr(1).replace(/(.)/g,"$101"));
     }
     function append_removal (offset, length) {
