@@ -401,7 +401,9 @@ CT.selfCheck = function () {
     }
     function log (rec) {
         if (window)
-            document.body.appendText(rec);
+            var p = document.createElement("p");
+            p.appendChild(document.createTextNode(rec));
+            document.body.appendChild(p);
     }
     
     // test statics
@@ -447,9 +449,10 @@ CT.selfCheck = function () {
     testeq("0ABC",test.getSortedYarnIds());
     testeq("01A3B1C2",test.getWeft2());
     testeq("Tekxt",test.getText1());
-    testeq("\x010000T00A0eA0A1kA1B0xA1C1sA1A2\bA2C0tA2A3\x040001",test.getWeave5c()); // add awareness
+    testeq("\u00010000T00A0eA0A1kA1B1xA1C2sA1A2\u0008A2C0tA2A3\u00040001"+
+            "\u0006A3B0\u0006A3C1",test.getWeave5c());
     testeq(1,test.compareWeft1("01A4B1","01A4C2"));
-    testeq("01A4B1",test.getYarnAwareness("B")); // awareness decl
+    testeq("01A3B1",test.getYarnAwareness("B")); // awareness decl
     
     log("basic functionality test OK");
     
