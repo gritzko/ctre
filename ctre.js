@@ -68,8 +68,8 @@ CT.prototype.getText5c = function () {
     if (this.text5c) return this.text5c;
     var parse = this.weave5c.match(this.re_weave5c);
     if (!parse) throw "weave format error";
-    var body = parse[0];
-    var stash = parse[1];
+    var body = parse[1];
+    var stash = parse[2];
     this.text5c =  body.replace(this.re_scouring,"$1");
     return this.text5c;
 }
@@ -160,7 +160,7 @@ CT.prototype.compareWeft1 = function (weft2a,weft2b) {
     var re_srch = this.re_notinset.fill({'S':CT.escapeMeta(diff)});
     var srt_diff = this.getSortedYarnIds().replace(re_srch,"");
     var win = srt_diff.charAt(srt_diff.length-1);
-    return CT.getYarnLength(weft2a,win) > CT.getYarnLength(weft2a,win) ? 1 : -1;
+    return CT.getYarnLength(weft2a,win) > CT.getYarnLength(weft2b,win) ? 1 : -1;
 }
 
 CT.prototype.getYarnLength = function (yarnid) {
@@ -229,9 +229,9 @@ CT.prototype.addChunk5c = function (chunk5c) {
 }
 
 CT.prototype.re_findvictim = /(.{5})*?...($M)/g;
-CT.prototype.re_form5c = /...../g;
+CT.prototype.re_form5c = /(.)(..)(..)/g;
 CT.prototype.addDeletionChunk5c = function (chunk5c) {
-    var ids = CT.escapeMeta(chunk5c.replace(this.re5ctoid,"$1"));
+    var ids = CT.escapeMeta(chunk5c.replace(this.re_form5c,"$2"));
     var re_ids = ids.match(CT.re_filt).join('|');
     var re_victim = this.re_findvictim.fill({'M':re_ids});
     var atoms = chunk5c.match(this.re_form5c);
@@ -253,7 +253,7 @@ CT.prototype.addDeletionChunk5c = function (chunk5c) {
 }
 
 CT.prototype.re_chunk =
-    /(?:\u0008....)*|...(?:(..).\1)*../g;  // the Spui regex
+    /(?:\u0008....)+|...(?:(..).\1)*../g;  // the Spui regex
 /** The only method that mutates weave5c. Takes an array of atoms (patch5c),
     splits it into causality chains, applies chains to the weave. */
 CT.prototype.addPatch5c = function (patch5c) {
@@ -270,16 +270,17 @@ CT.prototype.addPatch5c = function (patch5c) {
                 this.addChunk5cHardcore(chunk);
         }
         var yarn_id = chunk[3];
-        this.awareness[yarn_id] = undefined;
+        if (this.awareness)
+            this.awareness[yarn_id] = undefined;
         this.weft2 = undefined; // TODO perf 
         this.deps4c = undefined;
     }
 }
 
-CT.prototype.re_hist = /(...$V)|...../g;
+CT.prototype.re_hist = /(...(?:$V))|...../g;
 /** Returns a CT object wrapping a historical version of the weave. */
 CT.prototype.getVersion = function (weft2) {
-    var re_fre = this.re_hist.fill({'V':this.getFiltre(weft2)});
+    var re_fre = this.re_hist.fill({'V':CT.getFiltre(weft2)});
     var weave5cver = this.weave5c.replace(re_fre,"$1");
     return new CT(weave5cver,this.yarns);
 }
@@ -323,9 +324,9 @@ CT.prototype.getPlainText = function () {
 //CT.re_f = /($Y[0-$O])|../g;
 CT.weft2Covers = function (weft2, atom) {
     //var re_fd = CT.re_f.fill({'Y':atom[0],'O':atom[1]});
-    var re_fd = new RegExp("("+atom[0]+"[^0-"+atom[1]+"])|..","g");
+    var re_fd = new RegExp("("+atom[0]+".)|..","g");
     var cover = weft2.replace(re_fd,"$1");
-    return cover;
+    return cover && cover[1]>=atom[1];
 }
 
 CT.prototype.re_del3to5 = /.(..)/g;
@@ -364,17 +365,17 @@ CT.prototype.getDiffAsPatch3c = function (text1,yarn_url,weft2) {
     var that = this;
     function append_insertion (offset, text) {
         //sibling check goes here
-        var cause = base3.substr(offset*3+1-3,2);
-        var sibl = base3.substr(offset*3+4-3,2);
-        var w2 = that.getYarnAwareness(yarn_id);
-        if (!CT.weft2Covers(w2,sibl))
-            changes3c.push('\u0006'+sibl);
+        var cause = offset>0 ? base3.substr(offset*3+1-3,2) : "00";
+        var sibl = offset*3<base3.length ? base3.substr(offset*3+4-3,2) : "01";
+        var w2 = yarn_id ? that.getYarnAwareness(yarn_id) : "01";
+        if (!CT.weft2Covers(w2,sibl))  // FIXME precache, amend
+            changes3c.push('\u0006'+sibl[0]+that.getYarnLength(sibl[0]));
         changes3c.push(text.charAt(0)+cause);
         changes3c.push(text.substr(1).replace(/(.)/g,"$101"));
     }
     function append_removal (offset, length) {
         var chunk = base3.substr(offset*3,length*3);
-        changes3c.push(chunk.replace(/.(..)/g,"\8$1"));
+        changes3c.push(chunk.replace(/.(..)/g,"\u0008$1"));
     }
     var p;
     if (text1.length==0) { //removal
@@ -395,8 +396,8 @@ CT.prototype.getDiffAsPatch3c = function (text1,yarn_url,weft2) {
     return patch3c;
 }
 
-CT.prototype.addNewVersion = function (text1,yarn_url) {
-    var patch3c = this.getDiffAsPatch3c(text1,yarn_url);
+CT.prototype.addNewVersion = function (text1,yarn_url,weft2) {
+    var patch3c = this.getDiffAsPatch3c(text1,yarn_url,weft2);
     var patch5c = this.convertPatch3cTo5c(patch3c,yarn_url);
     this.addPatch5c(patch5c);
     return this.getWeft2();
@@ -429,35 +430,35 @@ CT.selfCheck = function () {
     testeq("01",test.getWeft2());
     testeq(test.allocateYarnCode(),"A");
     testeq("0",test.getSortedYarnIds());
-    testeq("\1\4",test.getText1());    
+    testeq("",test.getText1());    
     testeq(0,test.compareWeft1("01","01"));
     // testeq(-1,test.compareWeft1("01","01A2")); TEST AS INCORR INPUT
     
-    var v_te = test.addNewVersion("\1Te\4","Alice");
+    var v_te = test.addNewVersion("Te","Alice");
     testeq("B",test.allocateYarnCode());
-    testeq("\1Te\4",test.getText1());
+    testeq("Te",test.getText1());
     testeq("\x010000T00A0eA0A1\x040001",test.getWeave5c());
     testeq("00A0",test.getDeps4c());
     testeq("0A",test.getSortedYarnIds());
     testeq(-1,test.compareWeft1("01","01A2"));
     testeq("01A1",test.getYarnAwareness("A"));
     
-    var v_test = test.addNewVersion("\1Test\4","Alice");
+    var v_test = test.addNewVersion("Test","Alice");
     testeq("01A3",v_test);
     testeq("Test",test.getPlainText());
     
-    var v_text = test.addNewVersion("\1Tekst\4","Bob");
-    wefteq("01A4B1",test.getWeft2());
-    testeq("00A0A4B0A1B1",test.getDeps4c());
+    var v_text = test.addNewVersion("Tekst","Bob");
+    testeq("01A3B1",test.getWeft2());
+    testeq("00A0A1B1A3B0",test.getDeps4c());
     testeq("0AB",test.getSortedYarnIds());
     testeq(1,test.compareWeft1("01A4B1","01A4"));
-    testeq("01A4B1",test.getYarnAwareness("B")); // awareness decl
-    testeq("01A4B1",test.closeWeft2("B1"));
+    testeq("01A3B1",test.getYarnAwareness("B")); // awareness decl
+    testeq("01A3B1",test.closeWeft2("B1"));
 
-    var v_tekxt = test.addNewVersion("\1Text\4","Carol",v_test);
+    var v_tekxt = test.addNewVersion("Text","Carol",v_test);
     testeq("0ABC",test.getSortedYarnIds());
-    wefteq("01A4B1C2",test.getWeft2());
-    testeq("\1Tekxt\4",test.getText1());
+    testeq("01A3B1C2",test.getWeft2());
+    testeq("Tekxt",test.getText1());
     testeq("\x010000T00A0eA0A1kA1B0xA1C1sA1A2\bA2C0tA2A3\x040001",test.getWeave5c()); // add awareness
     testeq(1,test.compareWeft1("01A4B1","01A4C2"));
     testeq("01A4B1",test.getYarnAwareness("B")); // awareness decl
