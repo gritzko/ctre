@@ -159,7 +159,7 @@ CT.prototype.compareWeft1 = function (weft2a,weft2b) {
         return 0;
     var re_srch = this.re_notinset.fill({'S':CT.escapeMeta(diff)});
     var srt_diff = this.getSortedYarnIds().replace(re_srch,"");
-    var win = srt_diff.charAt(srt_diff.length-1);
+    var win = srt_diff.charAt(0);
     return CT.getYarnLength(weft2a,win) > CT.getYarnLength(weft2b,win) ? 1 : -1;
 }
 
@@ -228,32 +228,20 @@ CT.prototype.addChunk5c = function (chunk5c) {
     return new_weave5c;
 }
 
-CT.prototype.re_findvictim = /(.{5})*?...($M)/g;
+CT.prototype.re_findvictim = /((?:.....)*?...($M))((?:.....)*?)(?=$|...($M))/g;
 CT.prototype.re_form5c = /(.)(..)(..)/g;
 CT.prototype.addDeletionChunk5c = function (chunk5c) {
+    var head = chunk5c.substr(3,2);
     var ids = CT.escapeMeta(chunk5c.replace(this.re_form5c,"$2"));
     var re_ids = ids.match(CT.re_filt).join('|');
-    var re_victim = this.re_findvictim.fill({'M':re_ids});
-    var atoms = chunk5c.match(this.re_form5c);
-    function append_bsp (match,id) {
-        // preferably, deletion atoms should be put left-to-right; TODO sep ack
-        var atom=memo[id];
-        while ( !atom ) {
-            var bsp = atoms.pop();
-            var cause = bsp.substr(1,2);
-            if (cause==id)
-                atom = bsp;
-            else
-                memo[cause] = bsp;
-        }
-        return match + atom;
-    }
-    var w5c = this.weave5c.replace (this.re_victim,append_bsp);
+    var re_victim = new RegExp("((?:.....)*?...("+re_ids
+            +"))((?:.....)*?)(?=$|...("+re_ids+"))","g");
+    var w5c = this.weave5c.replace (re_victim,"$1\u0008$2"+head+"$3");
     return w5c;
 }
 
 CT.prototype.re_chunk =
-    /(?:\u0008....)+|...(?:(..).\1)*../g;  // the Spui regex
+    /\u0008..(.).(?:\u0008..\1.)*|...(?:(..).\2)*../g;  // the Spui regex
 /** The only method that mutates weave5c. Takes an array of atoms (patch5c),
     splits it into causality chains, applies chains to the weave. */
 CT.prototype.addPatch5c = function (patch5c) {
