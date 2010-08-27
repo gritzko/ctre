@@ -15,6 +15,17 @@ function CT (weave5c,yarns) {
     this.yarns = yarns || {"\x01--default yarn--\x04":'0'};
 }
 
+CT.macros = {
+    '<' : "\u0008", // del char
+    '>' : "\u007F", // undel char
+    'x' : "[\u0008\u007F]", // del/undel char
+    'X' : "[^\u0008\u007F]", // not a del/undel char
+    'b' : "\u0001",  // ascii beginning symbol
+    'e' : "\u0004", // ascii end symbol
+    'f' : "[0A-\uffff]", // feed id
+    'o' : "[0-\uffff]" // offset
+};
+
 /** Dynamically composed regexes are even less readable using the standard
     notation new RegExp("abc"+x+"."+y,"g") etc. Thus, I use template regexes
     defined as /abc$x.$y/g. */
@@ -402,8 +413,20 @@ CT.prototype.getYarn5c = function (yarn_id) {
     return form5c;
 }
 
+CT.prototype.re_sum_undos = "(>.)*(>0)(>.)*(<.)|(>.)+(<[^0])|(>.)+(<.)|(..)".fill(CT.macros);
+CT.prototype.re_sum_dels = "(X.)*(<0)(X.)*|(X.)*?(<.)(X.)*|(>.)|(..)".fill(CT.macros);
+CT.prototype.re_sum_symbols =
+                    ["(x.)0<(.)0",
+                    "(x).0>(.)(0)",
+                    "(x.0)"].join('|').fill(CT.macros);
+CT.prototype.re_paint_filter = "x00|(x.0)|(x0.)|x..".fill(CT.macros);
 CT.prototype.getHili3 = function (weft2) {
-    
+    var undos_summed = form2.replace(this.re_sum_undos,"$7$9");
+    // as a result, we have 3 types of del-undel blocks:  <0   <.   >.
+    var dels_summed = undos_summed.replace(this.re_sum_dels,"$2$5$7$8");
+    var symbols_summed = dels_summed.replace(this.re_sum_symbols,"");
+    var painted = form3.replace(this.re_sum_symbols,"$1$2$3$5$4$6");
+    var cleared = painted.replace(this.re_paint_filter,"$1$2");
 }
 
 
