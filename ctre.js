@@ -2,7 +2,7 @@
 CT.prototype.leery = true;
 
 CT.prototype.re_wv5csyn = 
-/^\u00010000(.([0A-\uffff][^\u0000-\u002f]){2})*\u00040001(.{5})*$/; // TODO: SYMB(BS|REV)*
+    /^\x010000(.[0A-\uffff][^\0-\x2f][0A-\uffff][^\0-\x2f])*\x040001$/;
 /** Causal Trees (CT) version control implementation. For the theory see
  *  Victor Grishchenko "Deep hypertext with embedded revision control
  *  implemented in regular expressions"
@@ -391,21 +391,6 @@ CT.prototype.addNewVersion = function (text1,yarn_url,weft2) {
     return this.getWeft2();
 }
 
-CT.prototype.re_pickyarn = /(...)($Y.)|...../g;
-CT.prototype.re_improper5 = /(..)(.)(..)/g;
-CT.prototype.getYarn5c = function (yarn_id) {
-    if (this.leery && yarn_id.length!=1) throw "invalid yarn_id";
-    var re = this.re_pickyarn.fill({'Y':yarn_id});
-    var atoms = this.weave5c.replace(re,"$2$1");
-    var sorted = atoms.match(this.re_form5c).sort().join('');
-    var form5c = sorted.replace(this.re_improper5,"$2$3$1");
-    return form5c;
-}
-
-CT.prototype.getHili3 = function (weft2) {
-    
-}
-
 
 CT.selfCheck = function () {
  
@@ -421,88 +406,69 @@ CT.selfCheck = function () {
             document.body.appendChild(p);
     }
     
-    function testStatics () {
-        testeq("1\\.2\\-3\\]",CT.escapeMeta("1.2-3]"));
-        testeq("0[0-1]|A[0-\\?]|\\[[0-8]",CT.getFiltre("01A?[8"));
-        testeq("0[^1-\uffff]|A[^\\?-\uffff]|\\[[^8-\uffff]",CT.getExFiltre("01A?[8"));
-        testeq("01A2B3C4",CT.dryWeft2("B301B2A0C400C1A2"));
-        testeq('4',CT.getYarnLength("01A2B3C4",'C'));
-        var re = (/abc$De$F/g).fill({'D':'d','F':'f'});
-        testeq(1," abcdef".search(re));
-        log("statics tests OK");
-    }
+    // test statics
+    testeq("1\\.2\\-3\\]",CT.escapeMeta("1.2-3]"));
+    testeq("0[0-1]|A[0-\\?]|\\[[0-8]",CT.getFiltre("01A?[8"));
+    testeq("0[^1-\uffff]|A[^\\?-\uffff]|\\[[^8-\uffff]",CT.getExFiltre("01A?[8"));
+    testeq("01A2B3C4",CT.dryWeft2("B301B2A0C400C1A2"));
+    testeq('4',CT.getYarnLength("01A2B3C4",'C'));
+    var re = (/abc$De$F/g).fill({'D':'d','F':'f'});
+    testeq(1," abcdef".search(re));
     
-    function testBasicCt () {
-        var test = new CT();
-        testeq("01",test.getWeft2());
-        testeq(test.allocateYarnCode(),"A");
-        testeq("0",test.getSortedYarnIds());
-        testeq("",test.getText1());    
-        testeq(0,test.compareWeft1("01","01"));
-        testeq("\u00010000\u00040001",test.getYarn5c('0'));
-        // testeq(-1,test.compareWeft1("01","01A2")); TEST AS INCORR INPUT
-        
-        var v_te = test.addNewVersion("Te","Alice");
-        testeq("B",test.allocateYarnCode());
-        testeq("Te",test.getText1());
-        testeq("\x010000T00A0eA0A1\x040001",test.getWeave5c());
-        testeq("00A0",test.getDeps4c());
-        testeq("0A",test.getSortedYarnIds());
-        testeq(-1,test.compareWeft1("01","01A2"));
-        testeq("01A1",test.getYarnAwareness("A"));
-        
-        var v_test = test.addNewVersion("Test","Alice");
-        testeq("01A3",v_test);
-        testeq("Test",test.getPlainText());
-        
-        var v_text = test.addNewVersion("Tekst","Bob");
-        testeq("01A3B1",test.getWeft2());
-        testeq("00A0A1B1A3B0",test.getDeps4c());
-        testeq("0AB",test.getSortedYarnIds());
-        testeq(1,test.compareWeft1("01A4B1","01A4"));
-        testeq("01A3B1",test.getYarnAwareness("B")); // awareness decl
-        testeq("01A3B1",test.closeWeft2("B1"));
+    // test the object
+    var test = new CT();
+    testeq("01",test.getWeft2());
+    testeq(test.allocateYarnCode(),"A");
+    testeq("0",test.getSortedYarnIds());
+    testeq("",test.getText1());    
+    testeq(0,test.compareWeft1("01","01"));
+    // testeq(-1,test.compareWeft1("01","01A2")); TEST AS INCORR INPUT
+    
+    var v_te = test.addNewVersion("Te","Alice");
+    testeq("B",test.allocateYarnCode());
+    testeq("Te",test.getText1());
+    testeq("\x010000T00A0eA0A1\x040001",test.getWeave5c());
+    testeq("00A0",test.getDeps4c());
+    testeq("0A",test.getSortedYarnIds());
+    testeq(-1,test.compareWeft1("01","01A2"));
+    testeq("01A1",test.getYarnAwareness("A"));
+    
+    var v_test = test.addNewVersion("Test","Alice");
+    testeq("01A3",v_test);
+    testeq("Test",test.getPlainText());
+    
+    var v_text = test.addNewVersion("Tekst","Bob");
+    testeq("01A3B1",test.getWeft2());
+    testeq("00A0A1B1A3B0",test.getDeps4c());
+    testeq("0AB",test.getSortedYarnIds());
+    testeq(1,test.compareWeft1("01A4B1","01A4"));
+    testeq("01A3B1",test.getYarnAwareness("B")); // awareness decl
+    testeq("01A3B1",test.closeWeft2("B1"));
 
-        var v_tekxt = test.addNewVersion("Text","Carol",v_test); // use version instead
-        testeq("0ABC",test.getSortedYarnIds());
-        testeq("01A3B1C2",test.getWeft2());
-        testeq("Tekxt",test.getText1());
-        testeq("\u00010000T00A0eA0A1kA1B1xA1C2sA1A2\u0008A2C0tA2A3\u00040001"+
-                "\u0006A3B0\u0006A3C1",test.getWeave5c());
-        testeq(1,test.compareWeft1("01A4B1","01A4C2"));
-        testeq("01A3B1",test.getYarnAwareness("B")); // awareness decl
-        
-        log("basic functionality tests OK");
-    }
-    
-    function testBracing () {
-        var braces = new CT();
-        braces.addNewVersion("Text","Alice");
-        testeq("Text",braces.getText1());
-        var round = braces.addNewVersion("(Text)","Bob");
-        testeq("(Text)",braces.getText1());
-        braces.addNewVersion("[Text]","Carol");
-        testeq("[Text]",braces.getText1());
-        var v = braces.getVersion(round);
-        testeq("(Text)",v.getText1());
-        log("bracing tests OK");
-    }
-    
-    function testDiff () {
-        var start = braces.addNewVersion("Text","Alice");
-        var round = braces.addNewVersion("(Text)","Bob");
-        braces.addNewVersion("[Text]","Carol");
-        var diff = braces.getHili3(start);
-        testeq("[C0(BCT00e00x00t00]C0)BC");
-    }
+    var v_tekxt = test.addNewVersion("Text","Carol",v_test);
+    testeq("0ABC",test.getSortedYarnIds());
+    testeq("01A3B1C2",test.getWeft2());
+    testeq("Tekxt",test.getText1());
+    testeq("\u00010000T00A0eA0A1kA1B1xA1C2sA1A2\u0008A2C0tA2A3\u00040001"+
+            "\u0006A3B0\u0006A3C1",test.getWeave5c());
+    testeq(1,test.compareWeft1("01A4B1","01A4C2"));
+    testeq("01A3B1",test.getYarnAwareness("B")); // awareness decl
 
-    // undo test
+    log("basic functionality test OK");
+
+    var bracing = new CT();
+    bracing.addNewVersion("Text","Alice");
+    testeq("Text",bracing.getText1());
+    bracing.addNewVersion("(Text)","Bob");
+    testeq("(Text)",bracing.getText1());
+    bracing.addNewVersion("[Text]","Alice");
+    testeq("[Text]",bracing.getText1());
+    bracing.addNewVersion("Text","Bob");
+    testeq("Text",bracing.getText1());
+    log("bracing test OK");
+
     // concurrency test
     // performance test
     // incorrect input tests
-    
-    testStatics();
-    testBasicCt();
-    testBracing();
 
 }
