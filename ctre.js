@@ -1,8 +1,43 @@
 /** Turns on paranoid correctness checks. */
 CT.prototype.leery = true;
 
+CT.$ = {
+    '<' : "\u0008", // del char
+    '>' : "\u007F", // undel char
+    'x' : "[\u0008\u007F]", // del/undel char
+    'X' : "[^\u0008\u007F]", // not a del/undel char
+    'b' : "\u0001",  // ascii beginning symbol
+    'e' : "\u0004", // ascii end symbol
+    'f' : "[0A-\uffff]", // feed id
+    'o' : "[0-\uffff]", // offset
+    '2' : "(?:[0A-\uffff][0-\uffff])", // feed+offset
+    '4' : "(?:(?:[0A-\uffff][0-\uffff]){2})", // feed+offset twice
+    'z' : "(?:\u007F*\u0008)", // 1-form del-undel block
+    'Z' : "(?:(?:\u007F..)*\u0008..)", // 3-form del-undel
+    '%' : "(?:(?:\u007F....)*\u0008....)" // 5-form del-undel
+};
+
+/** Dynamically composed regexes are even less readable using the standard
+ notation new RegExp("abc"+x+"."+y,"g") etc. Thus, I use template regexes
+ defined as /abc$x.$y/g. */
+CT.fill = function (template,values) {
+    if (!template.replace)
+        throw "supply a template string";
+    function replacer(match,letter) {
+        var ret = CT.$[letter] || (values && values[letter]);
+        return ret || match;
+    }
+    var re_str = template.replace(/\$(.)/g,replacer);
+    return re_str;
+}
+
+CT.re = function (template,values,flags) {
+    var expr = CT.fill(template,values);
+    return new RegExp(expr,flags||"gm");
+}
+
 CT.prototype.re_wv5csyn = 
-/^\u00010000(.([0A-\uffff][^\u0000-\u002f]){2})*\u00040001(.{5})*$/; // TODO: SYMB(BS|REV)*
+    CT.re("^$b0000($X$4(($>$4)*$<$4)*)*$e0001(.$4)*$");
 /** Causal Trees (CT) version control implementation. For the theory see
  *  Victor Grishchenko "Deep hypertext with embedded revision control
  *  implemented in regular expressions"
@@ -13,28 +48,6 @@ function CT (weave5c,yarns) {
     // these two are the only "primary" members; the rest is derived
     this.weave5c = weave5c || "\u00010000\u00040001";
     this.yarns = yarns || {"\x01--default yarn--\x04":'0'};
-}
-
-CT.macros = {
-    '<' : "\u0008", // del char
-    '>' : "\u007F", // undel char
-    'x' : "[\u0008\u007F]", // del/undel char
-    'X' : "[^\u0008\u007F]", // not a del/undel char
-    'b' : "\u0001",  // ascii beginning symbol
-    'e' : "\u0004", // ascii end symbol
-    'f' : "[0A-\uffff]", // feed id
-    'o' : "[0-\uffff]" // offset
-};
-
-/** Dynamically composed regexes are even less readable using the standard
-    notation new RegExp("abc"+x+"."+y,"g") etc. Thus, I use template regexes
-    defined as /abc$x.$y/g. */
-RegExp.prototype.fill = function (values) {
-    var re_str = this.source.replace(/\$([A-Z])/g,
-         function(match,letter) { return values[letter] || ''; }  );
-    var flags = (this.global?'g':'') + (this.ignoreCase?'i':'') +
-        (this.multiline?'m':'');
-    return new RegExp(re_str,flags);
 }
 
 CT.prototype.re_weave2weft = /...(..)/g;
@@ -71,16 +84,16 @@ CT.prototype.getText3 = function () {
 }
 
 CT.prototype.re_scouring = 
-/.{5}(?:(?:\u007F....)+\u0008....)*\u0008....(?:[\u007F\u0008]....)*|(.{5})(?:[\u007F\u0008]....)*/g;
-CT.prototype.re_weave5c = /^\u00010000((?:...[^0].)*)\u00040001((?:.{5})*)$/;
+    CT.re(".{5}(?:(?:$>....)+$<....)*$<....(?:$x....)*|(.{5})(?:$x....)*");
+CT.prototype.re_weave5c = CT.re("^$b0000((?:...[^0].)*)$e0001((?:.{5})*)$",CT.$,"m");
 // any deleted and undeleted but finally deleted    OR    whatever
 /** Text5c is derived from weave5c by scouring. */
 CT.prototype.getText5c = function () {
     if (this.text5c) return this.text5c;
     var parse = this.weave5c.match(this.re_weave5c);
     if (!parse) throw "weave format error";
-    var body = parse[1];
-    var stash = parse[2];
+    var body = parse[1] || '';
+    var stash = parse[2] || '';
     this.text5c =  body.replace(this.re_scouring,"$1");
     return this.text5c;
 }
@@ -97,7 +110,7 @@ CT.escapeMeta = function (re_str) {
 }
 
 CT.re_filt = /(\\.|.)(\\.|.)/g;
-CT.re_weft2syn = /^([0A-\uffff][^\0-\x2f])+$/;
+CT.re_weft2syn = CT.re("^($2)+$");
 /** Filtre is a regex matching atom ids under the weft. Filtres are mostly
     useful for filtering weaves/whatever according to wefts,
     i.e. for restoring/checking against historical state. */
@@ -124,13 +137,13 @@ CT.dryWeft2 = function (weft2) {
     return dered;
 }
 
-CT.prototype.re_trans = /(..)($W)|..../g;
+CT.prototype.re_trans = "(..)($W)|....";
 /** Make a transitive closure of causal dependencies; return a closed weft. */
 CT.prototype.closeWeft2 = function (weft2) {
     var w2 = null;
     while (weft2!=w2) {
         w2 = weft2;
-        var re_covered = this.re_trans.fill({'W':CT.getFiltre(weft2)});
+        var re_covered = CT.re(this.re_trans,{'W':CT.getFiltre(weft2)});
         var covers = this.getDeps4c().replace(re_covered,"$1");
         weft2 = CT.dryWeft2(weft2+covers+"01");
     }
@@ -160,7 +173,7 @@ CT.getYarnLength = function (weft2,yarnid) {
 
 CT.prototype.re_form2 = /../g;
 CT.prototype.re_w2diff = /(..)\1|(.).(\2).|(.)./g;
-CT.prototype.re_notinset = /[^$S]/g;
+CT.prototype.re_notinset = "[^$S]";
 /** Compare two weft2s according to the weftI-ordering (see the paper). */
 CT.prototype.compareWeft1 = function (weft2a,weft2b) {
     var split = (weft2a+weft2b).match(this.re_form2);
@@ -168,7 +181,7 @@ CT.prototype.compareWeft1 = function (weft2a,weft2b) {
     var diff = sorted.replace(this.re_w2diff,"$3$4");
     if (!diff)
         return 0;
-    var re_srch = this.re_notinset.fill({'S':CT.escapeMeta(diff)});
+    var re_srch = CT.re( this.re_notinset, {'S':CT.escapeMeta(diff)} );
     var srt_diff = this.getSortedYarnIds().replace(re_srch,"");
     var win = srt_diff.charAt(0);
     return CT.getYarnLength(weft2a,win) > CT.getYarnLength(weft2b,win) ? 1 : -1;
@@ -187,8 +200,8 @@ CT.prototype.getYarnAwareness = function (yarnid) {
 }
 
 CT.prototype.re_causal_block =
-    /^((?:.{5})*?)(...$R)((?:.$R..(?:.{5})*?)*)(.(?:$W).*)$/;
-CT.prototype.re_siblings = /.$R..(?:.{5})*?(?=.$R..|$)/g;
+    "^((?:.{5})*?)(...$R)((?:.$R..(?:.{5})*?)*)(.(?:$W).*)$";
+CT.prototype.re_siblings = ".$R..(?:.{5})*?(?=.$R..|$)";
 /** In case optimizations fail, the weave is patched using this method.
     It involves complex parsing and building of closed weft1, i.e. is
     is expensive. On the bright side, it is rarely invoked. */
@@ -197,7 +210,7 @@ CT.prototype.addChunk5cHardcore = function (chunk5c) {
     var head = chunk5c.substr(3,2);
     var root_aw_weft = this.closeWeft2(root);
     var re_root_aw = CT.getFiltre(root_aw_weft);
-    var re_split = this.re_causal_block.fill({'R':root,'W':re_root_aw});
+    var re_split = CT.re( this.re_causal_block, {'R':root,'W':re_root_aw}, 'm' );
     var split = this.weave5c.match(re_split);
     if (!split) throw "cannot find the attachment point";
     var beginning = split[1];
@@ -205,7 +218,7 @@ CT.prototype.addChunk5cHardcore = function (chunk5c) {
     var caused = split[3];
     var end = split[4];
     var head_aw_weft = this.closeWeft2(head+chunk5c.substr(1,2));
-    var siblings = caused.match(this.re_siblings.fill({'R':root}));
+    var siblings = caused.match( CT.re( this.re_siblings, {'R':root}, 'gm') );
     var i=0;
     for(; i<siblings.length; i++) {
         var sib_aw_weft = this.closeWeft2(siblings[i].substr(3,2));
@@ -217,7 +230,7 @@ CT.prototype.addChunk5cHardcore = function (chunk5c) {
 }
 
 CT.prototype.re_patch =
-    /^((?:.{5})*?)(...$C(?:[\u007F\u0008]....)*)(...(?:$A).*)$/;
+    "^((?:.{5})*?)(...$C(?:$x....)*)(...(?:$A).*)$";
 /** The streamlined weave patching method. May fail in case of unaware
     (i.e. concurrent) siblings. */
 CT.prototype.addChunk5c = function (chunk5c) {
@@ -232,27 +245,27 @@ CT.prototype.addChunk5c = function (chunk5c) {
         throw "repeated chunk";
     var aware = this.getYarnAwareness(head[0]);
     var re_aware = CT.getFiltre(aware+cause);
-    var re_find = this.re_patch.fill({'C':CT.escapeMeta(cause),'A':re_aware});
+    var re_find = CT.re(this.re_patch, {'C':CT.escapeMeta(cause),'A':re_aware}, 'm');
     var new_weave5c = this.weave5c.replace(re_find,"$1$2"+chunk5c+"$3");
     if (new_weave5c.length!=this.weave5c.length+chunk5c.length)
         return null;
     return new_weave5c;
 }
 
-CT.prototype.re_findvictim = /((?:.....)*?...($M))((?:.....)*?)(?=$|...($M))/g;
+//CT.prototype.re_findvictim = /((?:.....)*?...($M))((?:.....)*?)(?=$|...($M))/g;
 CT.prototype.re_form5c = /(.)(..)(..)/g;
 CT.prototype.addDeletionChunk5c = function (chunk5c) {
     var head = chunk5c.substr(3,2);
     var ids = CT.escapeMeta(chunk5c.replace(this.re_form5c,"$2"));
     var re_ids = ids.match(CT.re_filt).join('|');
-    var re_victim = new RegExp("((?:.....)*?...("+re_ids
-            +"))((?:.....)*?)(?=$|...("+re_ids+"))","g");
+    var re_victim = new RegExp("((?:.....)*?...("+re_ids    // PAIN
+            +"))((?:.....)*?)(?=$|...("+re_ids+"))","gm");
     var w5c = this.weave5c.replace (re_victim,"$1\u0008$2"+head+"$3");
     return w5c;
 }
 
 CT.prototype.re_chunk =
-    /\u0008..(.).(?:\u0008..\1.)*|...(?:(..).\2)*../g;  // the Spui regex
+    CT.re("$<..(.).(?:$<..\1.)*|...(?:(..).\2)*..",CT.$);  // the Spui regex
 /** The only method that mutates weave5c. Takes an array of atoms (patch5c),
     splits it into causality chains, applies chains to the weave. */
 CT.prototype.addPatch5c = function (patch5c) {
@@ -276,10 +289,10 @@ CT.prototype.addPatch5c = function (patch5c) {
     }
 }
 
-CT.prototype.re_hist = /(...(?:$V))|...../g;
+CT.prototype.re_hist = "(...(?:$V))|.....";
 /** Returns a CT object wrapping a historical version of the weave. */
 CT.prototype.getVersion = function (weft2) {
-    var re_fre = this.re_hist.fill({'V':CT.getFiltre(weft2)});
+    var re_fre = CT.re(this.re_hist, {'V':CT.getFiltre(weft2)});
     var weave5cver = this.weave5c.replace(re_fre,"$1");
     return new CT(weave5cver,this.yarns);
 }
@@ -320,10 +333,9 @@ CT.prototype.getPlainText = function () {
     return this.getText1().replace(this.re_ctremeta,'');
 }
 
-//CT.re_f = /($Y[0-$O])|../g;
+CT.re_f = "($Y.)|..";
 CT.weft2Covers = function (weft2, atom) {
-    //var re_fd = CT.re_f.fill({'Y':atom[0],'O':atom[1]});
-    var re_fd = new RegExp("("+atom[0]+".)|..","g");
+    var re_fd = CT.re(CT.re_f,{'Y':atom[0]});
     var cover = weft2.replace(re_fd,"$1");
     return cover && cover[1]>=atom[1];
 }
@@ -402,39 +414,55 @@ CT.prototype.addNewVersion = function (text1,yarn_url,weft2) {
     return this.getWeft2();
 }
 
-CT.prototype.re_pickyarn = /(...)($Y.)|...../g;
+CT.prototype.re_pickyarn = "(...)($Y.)|.....";
 CT.prototype.re_improper5 = /(..)(.)(..)/g;
 CT.prototype.getYarn5c = function (yarn_id) {
     if (this.leery && yarn_id.length!=1) throw "invalid yarn_id";
-    var re = this.re_pickyarn.fill({'Y':yarn_id});
+    var re = CT.re(this.re_pickyarn,{'Y':yarn_id});
     var atoms = this.weave5c.replace(re,"$2$1");
     var sorted = atoms.match(this.re_form5c).sort().join('');
     var form5c = sorted.replace(this.re_improper5,"$2$3$1");
     return form5c;
 }
 
-CT.prototype.re_sum_undos = "(>.)*(>0)(>.)*(<.)|(>.)+(<[^0])|(>.)+(<.)|(..)".fill(CT.macros);
-CT.prototype.re_sum_dels = "(X.)*(<0)(X.)*|(X.)*?(<.)(X.)*|(>.)|(..)".fill(CT.macros);
-CT.prototype.re_sum_symbols =
-                    ["(x.)0<(.)0",
-                    "(x).0>(.)(0)",
-                    "(x.0)"].join('|').fill(CT.macros);
-CT.prototype.re_paint_filter = "x00|(x.0)|(x0.)|x..".fill(CT.macros);
+CT.prototype.re_white = "((?:...)*?)(.)$F"; // FIXME: ending
+CT.prototype.re_scour = CT.re("$3$Z*?$<00$Z*|($3$Z*)");
+CT.prototype.re_m_undos = CT.re( [
+                             "($>..)*($>00)($>..)*($<..)", // old undel old del X
+                             "($>..)+($<[^0][^0])",       // new undel new del X
+                             "($>..)+($<00)",            // new undel old del - aha!
+                             "(...)"                    // the rest
+                             ].join('|'));
+CT.prototype.re_m_dels = CT.re( [
+                            "($x..)*?($<00)($x..)*",  // old deleted
+                            "($x..)*?($<..)($x..)*", // newly deleted
+                            "($>..)+",              // newly undeleted
+                            "(...)"                // the rest
+                            ].join('|') );
+CT.prototype.re_m_symb = CT.re( [
+                            "($X0)0$<(.).",       // deleted
+                            "($X)0(0)$>(.).",    // undeleted
+                            "($X..)"            // nothing
+                            ].join('|') );
 CT.prototype.getHili3 = function (weft2) {
-    var undos_summed = form2.replace(this.re_sum_undos,"$7$9");
-    // as a result, we have 3 types of del-undel blocks:  <0   <.   >.
-    var dels_summed = undos_summed.replace(this.re_sum_dels,"$2$5$7$8");
-    var symbols_summed = dels_summed.replace(this.re_sum_symbols,"");
-    var painted = form3.replace(this.re_sum_symbols,"$1$2$3$5$4$6");
-    var cleared = painted.replace(this.re_paint_filter,"$1$2");
+    var w3 = this.getWeave3();
+    var re_paint_white = CT.re(this.re_white,{'F':CT.getFiltre(weft2)});
+    var ww = w3.replace(re_paint_white,"$1$200");
+    var prescour = ww.replace(this.re_scour,"$1");
+    var undos_merged = prescour.replace(this.re_m_undos,"$7$9");
+    // as a result, we have 3 types of del-undel blocks:  <00   <..   >..
+    var dels_merged = undos_merged.replace(this.re_m_dels,"$2$5$7$8");
+    // now, at most one metasymbol per symbol
+    var symb_merged = dels_merged.replace(this.re_m_symb,"$1$2"+"$3$5$4"+"$6");
+    return symb_merged;
 }
 
 
 CT.selfCheck = function () {
- 
+
     function testeq (must, is) {
         if (must!==is) {
-            throw "equality test fail: '"+must+"' != '"+is+"'";
+            throw "equality test fail: must be '"+must+"' have '"+is+"'";
         }
     }
     function log (rec) {
@@ -443,28 +471,28 @@ CT.selfCheck = function () {
             p.appendChild(document.createTextNode(rec));
             document.body.appendChild(p);
     }
-    
+
     function testStatics () {
         testeq("1\\.2\\-3\\]",CT.escapeMeta("1.2-3]"));
         testeq("0[0-1]|A[0-\\?]|\\[[0-8]",CT.getFiltre("01A?[8"));
         testeq("0[^1-\uffff]|A[^\\?-\uffff]|\\[[^8-\uffff]",CT.getExFiltre("01A?[8"));
         testeq("01A2B3C4",CT.dryWeft2("B301B2A0C400C1A2"));
         testeq('4',CT.getYarnLength("01A2B3C4",'C'));
-        var re = (/abc$De$F/g).fill({'D':'d','F':'f'});
+        var re = CT.re( "abc$De$F", {'D':'d','F':'f'} );
         testeq(1," abcdef".search(re));
         log("statics tests OK");
     }
-    
+
     function testBasicCt () {
         var test = new CT();
         testeq("01",test.getWeft2());
         testeq(test.allocateYarnCode(),"A");
         testeq("0",test.getSortedYarnIds());
-        testeq("",test.getText1());    
+        testeq("",test.getText1());
         testeq(0,test.compareWeft1("01","01"));
         testeq("\u00010000\u00040001",test.getYarn5c('0'));
         // testeq(-1,test.compareWeft1("01","01A2")); TEST AS INCORR INPUT
-        
+
         var v_te = test.addNewVersion("Te","Alice");
         testeq("B",test.allocateYarnCode());
         testeq("Te",test.getText1());
@@ -473,11 +501,11 @@ CT.selfCheck = function () {
         testeq("0A",test.getSortedYarnIds());
         testeq(-1,test.compareWeft1("01","01A2"));
         testeq("01A1",test.getYarnAwareness("A"));
-        
+
         var v_test = test.addNewVersion("Test","Alice");
         testeq("01A3",v_test);
         testeq("Test",test.getPlainText());
-        
+
         var v_text = test.addNewVersion("Tekst","Bob");
         testeq("01A3B1",test.getWeft2());
         testeq("00A0A1B1A3B0",test.getDeps4c());
@@ -494,10 +522,10 @@ CT.selfCheck = function () {
                 "\u0006A3B0\u0006A3C1",test.getWeave5c());
         testeq(1,test.compareWeft1("01A4B1","01A4C2"));
         testeq("01A3B1",test.getYarnAwareness("B")); // awareness decl
-        
+
         log("basic functionality tests OK");
     }
-    
+
     function testBracing () {
         var braces = new CT();
         braces.addNewVersion("Text","Alice");
@@ -510,8 +538,9 @@ CT.selfCheck = function () {
         testeq("(Text)",v.getText1());
         log("bracing tests OK");
     }
-    
+
     function testDiff () {
+        var braces = new CT();
         var start = braces.addNewVersion("Text","Alice");
         var round = braces.addNewVersion("(Text)","Bob");
         braces.addNewVersion("[Text]","Carol");
@@ -523,7 +552,7 @@ CT.selfCheck = function () {
     // concurrency test
     // performance test
     // incorrect input tests
-    
+
     testStatics();
     testBasicCt();
     testBracing();
