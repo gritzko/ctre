@@ -83,6 +83,10 @@ CT.prototype.getText3 = function () {
     return this.text3 || (this.text3=this.getText5c().replace(this.re_5cto3,"$1$2"));
 }
 
+CT.prototype.getWeave3 = function () {
+    return this.weave3 || (this.weave3=this.weave5c.replace(this.re_5cto3,"$1$2"));
+}
+
 CT.prototype.re_scouring = 
     CT.re(".{5}(?:(?:$>....)+$<....)*$<....(?:$x....)*|(.{5})(?:$x....)*");
 CT.prototype.re_weave5c = CT.re("^$b0000((?:...[^0].)*)$e0001((?:.{5})*)$",CT.$,"m");
@@ -236,7 +240,7 @@ CT.prototype.re_patch =
 CT.prototype.addChunk5c = function (chunk5c) {
     var cause = chunk5c.substr(1,2);
     var head = chunk5c.substr(3,2);
-    if (this.getYarnLength(cause[0])<cause[1]) {
+    if (this.getYarnLength(cause[0])<cause[1]) { // FIXME move to addPatch5c
         if (!this.deferred) this.deferred = [];
         this.deferred.push(chunk5c);
         return;
@@ -425,36 +429,26 @@ CT.prototype.getYarn5c = function (yarn_id) {
     return form5c;
 }
 
-CT.prototype.re_white = "((?:...)*?)(.)$F"; // FIXME: ending
-CT.prototype.re_scour = CT.re("$3$Z*?$<00$Z*|($3$Z*)");
-CT.prototype.re_m_undos = CT.re( [
-                             "($>..)*($>00)($>..)*($<..)", // old undel old del X
-                             "($>..)+($<[^0][^0])",       // new undel new del X
-                             "($>..)+($<00)",            // new undel old del - aha!
-                             "(...)"                    // the rest
-                             ].join('|'));
-CT.prototype.re_m_dels = CT.re( [
-                            "($x..)*?($<00)($x..)*",  // old deleted
-                            "($x..)*?($<..)($x..)*", // newly deleted
-                            "($>..)+",              // newly undeleted
-                            "(...)"                // the rest
-                            ].join('|') );
-CT.prototype.re_m_symb = CT.re( [
-                            "($X0)0$<(.).",       // deleted
-                            "($X)0(0)$>(.).",    // undeleted
-                            "($X..)"            // nothing
-                            ].join('|') );
+CT.prototype.re_white = "(.)(?:$F)|(..).";
+CT.prototype.re_mark = CT.re("(. )|(..) ");
+CT.prototype.re_weave3 = CT.re("$b  ((?:[^$e]..)*)$e  .*",CT.$,"m");
+//CT.prototype.re_scour = CT.re("$3$Z*?$<  $Z*|($3$Z*)");
+CT.prototype.re_diff = CT.re([
+                        "$X  $Z*?$<  $Z*",      // old, old deleted
+                        "($X ) $Z*?$<(.).$Z*",  // old, just deleted
+                        "($X)  $Z*?(?:$>([^ ]).)+$<( ) $Z*", // old deleted, just recovered
+                        "($X  )$Z*",            // old, no changes
+                        "$X..$Z*?$<..$Z*",      // phantom (new, just deleted)
+                        "($X..)$Z*"             // new, still alive
+                    ].join('|'));
 CT.prototype.getHili3 = function (weft2) {
     var w3 = this.getWeave3();
     var re_paint_white = CT.re(this.re_white,{'F':CT.getFiltre(weft2)});
-    var ww = w3.replace(re_paint_white,"$1$200");
-    var prescour = ww.replace(this.re_scour,"$1");
-    var undos_merged = prescour.replace(this.re_m_undos,"$7$9");
-    // as a result, we have 3 types of del-undel blocks:  <00   <..   >..
-    var dels_merged = undos_merged.replace(this.re_m_dels,"$2$5$7$8");
-    // now, at most one metasymbol per symbol
-    var symb_merged = dels_merged.replace(this.re_m_symb,"$1$2"+"$3$5$4"+"$6");
-    return symb_merged;
+    var spaced = w3.replace(re_paint_white,"$1$2 ");
+    var marked = spaced.replace(this.re_mark,"$1$2 ");
+    var weave_hili = marked.replace(this.re_diff,"$1$2"+"$3$4$5"+"$6"+"$7");
+    var cut = weave_hili.match(this.re_weave3);
+    return cut[1];
 }
 
 
@@ -532,7 +526,7 @@ CT.selfCheck = function () {
         testeq("Text",braces.getText1());
         var round = braces.addNewVersion("(Text)","Bob");
         testeq("(Text)",braces.getText1());
-        braces.addNewVersion("[Text]","Carol");
+        braces.addNewVersion("[Text]","Carol"); // what actually happens
         testeq("[Text]",braces.getText1());
         var v = braces.getVersion(round);
         testeq("(Text)",v.getText1());
@@ -543,9 +537,10 @@ CT.selfCheck = function () {
         var braces = new CT();
         var start = braces.addNewVersion("Text","Alice");
         var round = braces.addNewVersion("(Text)","Bob");
+        braces.addNewVersion("Text","Carol");
         braces.addNewVersion("[Text]","Carol");
-        var diff = braces.getHili3(start);
-        testeq("[C0(BCT00e00x00t00]C0)BC");
+        testeq( "[C ( CT  e  x  t  ]C ) C", braces.getHili3(round) );
+        log("basic diff OK");
     }
 
     // undo test
@@ -556,5 +551,6 @@ CT.selfCheck = function () {
     testStatics();
     testBasicCt();
     testBracing();
+    testDiff();
 
 }
