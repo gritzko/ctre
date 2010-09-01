@@ -12,6 +12,7 @@ CT.$ = {
     'o' : "[0-\uffff]", // offset
     '2' : "(?:[0A-\uffff][0-\uffff])", // feed+offset
     '4' : "(?:(?:[0A-\uffff][0-\uffff]){2})", // feed+offset twice
+    '5' : "(?:.(?:[0A-\uffff][0-\uffff]){2})", // form5
     'z' : "(?:\u007F*\u0008)", // 1-form del-undel block
     'Z' : "(?:(?:\u007F..)*\u0008..)", // 3-form del-undel
     '%' : "(?:(?:\u007F....)*\u0008....)" // 5-form del-undel
@@ -257,7 +258,7 @@ CT.prototype.addChunk5c = function (chunk5c) {
 }
 
 //CT.prototype.re_findvictim = /((?:.....)*?...($M))((?:.....)*?)(?=$|...($M))/g;
-CT.prototype.re_form5c = /(.)(..)(..)/g;
+CT.prototype.re_form5c = CT.re("(.)($2)($2)");
 CT.prototype.addDeletionChunk5c = function (chunk5c) {
     var head = chunk5c.substr(3,2);
     var ids = CT.escapeMeta(chunk5c.replace(this.re_form5c,"$2"));
@@ -451,6 +452,46 @@ CT.prototype.getHili3 = function (weft2) {
     return cut[1];
 }
 
+CT.prototype.setAuthor = function (yarn_id) {
+    this.author = yarn_id; throw "no such thing";
+}
+
+CT.prototype.addComma = function () {
+    if (!this.commas) this.commas='';
+    this.commas += this.getYarnLength(); // default yarn, pov
+}
+
+CT.prototype.getRevertChunk3c = function (chunk) {
+    var rev_chunk3;
+    if (chunk[0]=='\u0008') {
+        rev_chunk3 = chunk.replace(this.re_form5c,"\u007F$2");
+    } else if (chunk[0]=='\u007F') {
+        // FIXME big pending issue in batch processing: awareness changes for >
+        // FIXME Convention: signal awareness explicitly
+        rev_chunk3 = chunk.replace(this.re_form5c,"\u0008$2");
+    } else {
+        rev_chunk3 = chunk.replace(this.re_form5c,"\u0008$3");
+    }
+    return rev_chunk3;
+}
+
+CT.prototype.re_span5c = "$5*?(.$2$B$5*.$2$E).*";
+CT.prototype.re_yarn_chunk = CT.re("$<$4|$>$4|$5");
+CT.prototype.getRevertSpan3c = function (span2) {
+    if (!this.author) throw "set (default) author";
+    var yarn5c = this.getYarn5c(this.author);
+    var b = this.author+span2[0];
+    var e = this.author+span2[1];
+    var spanre = CT.re( this.re_span5c(), {'B':b,'E':e} );
+    var span = yarn5c.match(spanre);
+    if (!span || !span[1]) throw "incorrect span specification";
+    var chunks = span[1].match(this.re_yarn_chunk);
+    var patch3c = [];
+    for(var i=0; i<chunks.length; i++)
+        patch3c.push (this.getRevertChunk3c(chunks[i]));
+    return patch3c.join('');
+}
+
 
 CT.selfCheck = function () {
 
@@ -543,7 +584,42 @@ CT.selfCheck = function () {
         log("basic diff OK");
     }
 
-    // undo test
+    function testUndo () {
+        var test = new CT();
+        var start = test.addNewVersion("Text","Alice");
+        var round = test.addNewVersion("Tezzzt","Bob");
+        testeq("T  e  zB zB zB x Bt  ",test.getHili3("A3"));
+        test.setAuthor('B');
+        var undo_patch = test.getRevertSpan3c("02");
+        testeq("\u007FA2\u0008B1\u0008B2\u0008B3",undo_patch);
+        var patch5c = test.convertPatch3cTo5c(undo_patch,"Bob");
+        test.addPatch5c(patch5c);
+        testeq("Text",test.getText1());
+        testeq("T  e  x  t  ",test.getHili3("A3"));
+        log("undo test OK");
+    }
+
+    // Open problem in method signature reengineering: know no yarn ->
+    // don't know where to put ack marks TODO
+    function testComplexDiff () {
+        var test = new CT();
+        test.addNewVersion("Tex","Alice");
+        test.addNewVersion("TexNt","Alice");
+        test.addNewVersion("Text","Alice");
+        test.addNewVersion("TextZ","Alice");
+        testeq('6',test.getYarnLength("Alice"));
+        test.rollbackChanges("66","Alice"); // TODO add redo/undo
+
+        var line = test.getWeft2();
+
+        test.addNewVersion("Tex!","Bob");
+        test.addNewVersion("LaTex!","Bob");
+        test.rollbackChanges("23","Bob");
+        
+        var hili = test.getHili3(line);
+        
+        testeq("T  e  x  t B!B ",hili);
+    }
     // concurrency test
     // performance test
     // incorrect input tests
