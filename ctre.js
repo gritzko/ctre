@@ -51,6 +51,10 @@ function CT (weave5c,yarns) {
     this.yarns = yarns || {"\x01--default yarn--\x04":'0'};
 }
 
+CT.prototype.clone = function () {
+    return new CT(this.weave5c,this.yarns);
+}
+
 CT.prototype.re_weave2weft = /...(..)/g;
 /** Returns the current revision's vector timestamp (i.e. a weft) in the
     canonic form (no redundancy, sorted by yarn id). */
@@ -116,21 +120,26 @@ CT.escapeMeta = function (re_str) {
 
 CT.re_filt = /(\\.|.)(\\.|.)/g;
 CT.re_weft2syn = CT.re("^($2)+$");
+CT.re_filtre = {
+    "li":"|$1[0-$2]",
+    "ri":"|$1[$2-\uffff]",
+    "lx":"|$1[^0-$2]",
+    "rx":"|$1[^$2-\uffff]"
+};
 /** Filtre is a regex matching atom ids under the weft. Filtres are mostly
     useful for filtering weaves/whatever according to wefts,
     i.e. for restoring/checking against historical state. */
-CT.getFiltre = function (weft2) {
+CT.getFiltre = function (weft2,mode) {
     if (this.leery && !weft2.match(CT.re_weft2syn)) throw "not a weft2";
     var escaped = CT.escapeMeta(weft2);
-    var filtre = escaped.replace(CT.re_filt,"|$1[0-$2]");
+    var expr = CT.re_filtre[mode||"li"];
+    var filtre = escaped.replace(CT.re_filt,expr);
     return filtre.substr(1);
 }
 
 /** Exclusive filtre, i.e. [0-x) instead of [0-x]. */
 CT.getExFiltre = function (weft2) {
-    var escaped = weft2.replace(CT.re_meta,"\\$1");
-    var exfiltre = escaped.replace(CT.re_filt,"|$1[^$2-\uFFFF]");
-    return exfiltre.substr(1);
+    return CT.getFiltre(weft2,"rx");
 }
 
 CT.re_nordn = /(.).(\1.)+|(..)/g;
@@ -241,13 +250,6 @@ CT.prototype.re_patch =
 CT.prototype.addChunk5c = function (chunk5c) {
     var cause = chunk5c.substr(1,2);
     var head = chunk5c.substr(3,2);
-    if (this.getYarnLength(cause[0])<cause[1]) { // FIXME move to addPatch5c
-        if (!this.deferred) this.deferred = [];
-        this.deferred.push(chunk5c);
-        return;
-    }
-    if (this.getYarnLength(head[0])>=head[1])
-        throw "repeated chunk";
     var aware = this.getYarnAwareness(head[0]);
     var re_aware = CT.getFiltre(aware+cause);
     var re_find = CT.re(this.re_patch, {'C':CT.escapeMeta(cause),'A':re_aware}, 'm');
@@ -269,15 +271,34 @@ CT.prototype.addDeletionChunk5c = function (chunk5c) {
     return w5c;
 }
 
+CT.re_filter2 = "$F|(..)";
+/** returns whether first weft covers the second */
+CT.isCover = function (weft2sup, weft2sub) {
+    var filtre = CT.re(CT.re_filter2,{'F':CT.getFiltre(weft2sup)});
+    var remainder = weft2sub.replace(filtre,"$1");
+    return remainder==='';
+}
+
 CT.prototype.re_chunk =
-    CT.re("$<..(.).(?:$<..\1.)*|...(?:(..).\2)*..",CT.$);  // the Spui regex
+    CT.re("$<..(.).(?:$<..\\1.)*|...(?:(..).\\2)*..",CT.$);  // the Spui regex
 /** The only method that mutates weave5c. Takes an array of atoms (patch5c),
     splits it into causality chains, applies chains to the weave. */
 CT.prototype.addPatch5c = function (patch5c) {
     this.text5c = this.text3 = this.text1 = undefined;
-    var chunks = patch5c.match(this.re_chunk);
-    for(var i=0; i<chunks.length; i++) {
-        var chunk = chunks[i];
+    var chunks = patch5c.match(this.re_chunk).reverse();
+    var fails = 0;
+    while (chunks.length && fails<chunks.length) {
+        var chunk = chunks.pop();
+        // check for causal deps, duplicate content
+        var prev = String.fromCharCode(chunk.charCodeAt(4)-1);
+        var deps = chunk.substr(1,2) + (prev=='/' ? '' : chunk[3] + prev);
+        if (!CT.isCover(this.getWeft2(),deps)) {
+            fails++;
+            chunks.unshift(chunk);
+            continue;
+        }
+        if (this.getYarnLength(chunk[3])>=chunk[4])
+            throw "duplicate content"; // TODO cut n paste
         if (chunk[0]==='\u0008') { // deletion
             this.weave5c = this.addDeletionChunk5c(chunk);
         } else if (chunk[0]==='\u0006') { // awareness
@@ -286,20 +307,27 @@ CT.prototype.addPatch5c = function (patch5c) {
             this.weave5c = this.addChunk5c(chunk) || 
                 this.addChunk5cHardcore(chunk);
         }
+        fails = 0;
         var yarn_id = chunk[3];
         if (this.awareness)
             this.awareness[yarn_id] = undefined;
-        this.weft2 = undefined; // TODO perf 
+        this.weft2 = CT.dryWeft2(this.weft2+chunk.replace(this.re_form5c,"$3"));
         this.deps4c = undefined;
     }
 }
 
-CT.prototype.re_hist = "(...(?:$V))|.....";
+CT.prototype.re_hist = "(...(?:$V))|(.....)";
 /** Returns a CT object wrapping a historical version of the weave. */
 CT.prototype.getVersion = function (weft2) {
     var re_fre = CT.re(this.re_hist, {'V':CT.getFiltre(weft2)});
     var weave5cver = this.weave5c.replace(re_fre,"$1");
     return new CT(weave5cver,this.yarns);
+}
+
+CT.prototype.getTail5c = function (weft2) {
+    var re_fre = CT.re(this.re_hist, {'V':CT.getFiltre(weft2,"li")});
+    var weave5cver = this.weave5c.replace(re_fre,"$2");
+    return weave5cver;
 }
 
 CT.prototype.re_form3 = /.../g;
@@ -349,11 +377,10 @@ CT.prototype.re_del3to5 = /.(..)/g;
 /** Serialize text changes as a patch. Changes are detected using simple
   * heuristics (TODO: diff-match-patch). 
   * @param text1    the new text (including metasymbols)
-  * @param yarn_url the URL identifying the author of the changes 
-  * @param weft2    the base version these changes were applied to
+  * @param yarn_url the URL identifying the author of the changes (optional)
   * @return         patch3c  */
-CT.prototype.getDiffAsPatch3c = function (text1,yarn_url,weft2) {
-    var base = weft2 ? this.getVersion(weft2) : this;
+CT.prototype.getPatch3c = function (text1,yarn_url) {
+    var base = this;
     var base3 = base.getText3();
     var base1 = base.getText1();
     var yarn_id = this.yarns[yarn_url];
@@ -412,20 +439,20 @@ CT.prototype.getDiffAsPatch3c = function (text1,yarn_url,weft2) {
     return patch3c;
 }
 
-CT.prototype.addNewVersion = function (text1,yarn_url,weft2) {
-    var patch3c = this.getDiffAsPatch3c(text1,yarn_url,weft2);
+CT.prototype.addNewVersion = function (text1,yarn_url) {
+    var patch3c = this.getPatch3c(text1);
     var patch5c = this.convertPatch3cTo5c(patch3c,yarn_url);
     this.addPatch5c(patch5c);
     return this.getWeft2();
 }
 
 CT.prototype.re_pickyarn = "(...)($Y.)|.....";
-CT.prototype.re_improper5 = /(..)(.)(..)/g;
+CT.prototype.re_improper5 = /(..)(.)(..)/mg;
 CT.prototype.getYarn5c = function (yarn_id) {
     if (this.leery && yarn_id.length!=1) throw "invalid yarn_id";
     var re = CT.re(this.re_pickyarn,{'Y':yarn_id});
     var atoms = this.weave5c.replace(re,"$2$1");
-    var sorted = atoms.match(this.re_form5c).sort().join('');
+    var sorted = atoms.match(this.re_improper5).sort().join('');
     var form5c = sorted.replace(this.re_improper5,"$2$3$1");
     return form5c;
 }
@@ -494,17 +521,34 @@ CT.prototype.getRevertSpan3c = function (span2) {
 
 
 CT.selfCheck = function () {
-
+    
+    function stacktrace() { 
+        function st2(f) {
+            return !f ? [] :  st2(f.caller).concat
+                ([f.toString().split('(')[0].substring(9) + 
+                  '(' + f.arguments.join(',') + ')']);
+        }
+        return st2(arguments.callee.caller);
+    }
+    
     function testeq (must, is) {
         if (must!==is) {
-            throw "equality test fail: must be '"+must+"' have '"+is+"'";
+            var msg = "equality test fail: must be '"+must+"' have '"+is+"'";
+            log(msg);
+            if (printStackTrace) {
+                var stack = printStackTrace();
+                stack.shift(); stack.shift(); stack.shift();
+                log(stack.join('\n'));
+            }
+            throw msg;
         }
     }
     function log (rec) {
-        if (window)
-            var p = document.createElement("p");
+        if (window) {
+            var p = document.createElement("pre");
             p.appendChild(document.createTextNode(rec));
             document.body.appendChild(p);
+        }
     }
 
     function testStatics () {
@@ -515,6 +559,7 @@ CT.selfCheck = function () {
         testeq('4',CT.getYarnLength("01A2B3C4",'C'));
         var re = CT.re( "abc$De$F", {'D':'d','F':'f'} );
         testeq(1," abcdef".search(re));
+        testeq(true,CT.isCover("01A2B3C0","A2B1C0"));
         log("statics tests OK");
     }
 
@@ -549,7 +594,10 @@ CT.selfCheck = function () {
         testeq("01A3B1",test.getYarnAwareness("B")); // awareness decl
         testeq("01A3B1",test.closeWeft2("B1"));
 
-        var v_tekxt = test.addNewVersion("Text","Carol",v_test); // use version instead
+        var w5c_test = test.getVersion(v_test);
+        w5c_test.addNewVersion("Text","Carol");
+        var p5c_tekxt = w5c_test.getTail5c(v_test);
+        test.addPatch5c(p5c_tekxt);
         testeq("0ABC",test.getSortedYarnIds());
         testeq("01A3B1C2",test.getWeft2());
         testeq("Tekxt",test.getText1());
@@ -620,13 +668,102 @@ CT.selfCheck = function () {
         
         testeq("T  e  x  t B!B ",hili);
     }
+    
     // concurrency test
+    function testConcurrency () {
+        var test = new CT();
+        var base = test.addNewVersion("Test","Alice");
+        testeq("Test",test.getText1());
+        var fork1 = test.clone();
+        var fork2 = test.clone();
+        var fork3 = test.clone();
+        var w1 = fork1.addNewVersion("Te1st","Dave");
+        var w2 = fork2.addNewVersion("Te2s","Carol");
+        var pf = fork3.getPatch3c("Te3t");
+        var w3 = fork3.addPatch3c(pf,"Bob");
+        
+        var p5 = fork1.getTail5c(base);
+        var p15 = fork2.getTail5c(base);
+        var p25 = fork3.getTail5c(base);
+        
+        test.addPatch5c(p5);
+        test.addPatch5c(p15);
+        test.addPatch5c(p25);
+        testeq("Te123",test.getText1());
+        
+        fork1.addPatch5c(p25);
+        fork1.addPatch5c(p15);
+        testeq("Te123",fork1.getText1());
+        
+        fork2.addPatch5c(p25);
+        fork2.addPatch5c(p5);
+        testeq("Te123",fork2.getText1());
+        
+        fork3.addPatch5c(p15);
+        fork3.addPatch5c(p5);
+        testeq("Te123",fork3.getText1());
+    }
+    
     // performance test
+    function testPerformance () {
+        var ct = new CT();
+        var users = ["Alice","Bob","Carol","Dave","Emma","Fred","George",
+                     "Hans","Ivan","Joost","Kevin","Lindiwe","Matt"];
+        while (ct.weave5c.length<5000000) {
+            var patches = [];
+            var text = ct.getText1();
+            var start = ct.getWeft2();
+            for(var i=0; i<users.length; i++) {
+                var coin = Math.random();
+                var text_new = '';
+                var hilichunk = '';
+                if (coin<0.8) { // add some text
+                    var len = Math.round()*20;
+                    var symb = [];
+                    for(var i=0; i<len; i++)
+                        symb.push(String.fromCharCode(Math.random()*30+0x61));
+                    var add = symb.join('');
+                    var pos = Math.random() * text.length;
+                    var head = text.substring(0,text.length*pos);
+                    var tail = text.substring(text.length*pos,text.length);
+                    text_new = head + add + tail;
+                    hilichunk = add.replace(/(.)/mg,"$1"+yarn_id+" ");
+                } else {
+                    var len = Math.round()*20;
+                    if (len>text.length)
+                        len = text.length;
+                    var off = Math.random() * (text.length-len);
+                    var head = text.substring(0,off);
+                    var deleted = text.substring(off,off+len);
+                    var tail = text.substring(off+len,text.length);
+                    text_new = head + tail;
+                    hilichunk = deleted.replace(/(.)/mg,"$1 "+yarn_id);
+                }
+                var clone = ct.clone();
+                clone.addNewVersion(text_new,users[i]);
+                var p5c = clone.getTail5c(start);
+                patches.push(p5c);
+                chunks_sorted.push(hilichunk);
+            }
+            while (patches.length)
+                ct.addPatch5c(patches.pop());
+            var hili = ct.getHili3(start);
+            hili = hili.replace(/.  |(...)/mg,"$1");
+            var spit = hili.match(/.(..)(.\1)*/mg);
+            split.sort();
+            testeq(chunks_sorted,split);
+        }
+    }
+    
     // incorrect input tests
 
     testStatics();
     testBasicCt();
     testBracing();
     testDiff();
+    testUndo();
+    testComplexDiff();
+    testConcurrency();
+    testPerformance();
 
 }
