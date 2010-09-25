@@ -57,8 +57,8 @@ CT.prototype.clone = function () {
 
 function CTRoster (id2url) {
     this.url2id = {};
-    this.id2url = id2url;
-    for(var code in id2url)
+    this.id2url = id2url || {};
+    for(var code in this.id2url)
         this.url2id[this.id2url[code]] = code;
     var defyarn = "\u0001--default yarn--\u0004";
     this.url2id[defyarn] = '0';
@@ -204,9 +204,10 @@ CT.prototype.closeWeft2 = function (weft2) {
 
 /** Returns the last known offset in the yarn, an empty string otherwise. */
 CT.getYarnLength = function (weft2,yarnid) {
-    if (!yarnid)
+    if (!yarnid || yarnid.length!=1)
         throw "no yarn id provided";
-    var m = weft2.match("^(?:..)*?"+yarnid+"(.)");
+    var re = new RegExp("^(?:..)*?"+yarnid+"(.)");
+    var m = weft2.match(re);
     return m ? m[1] : '';
 }
 
@@ -296,6 +297,18 @@ CT.prototype.addDeletionChunk5c = function (chunk5c) {
     return w5c;
 }
 
+CT.prototype.re_find_undo = "($5*?)($<$C)($A)($5*?)(?=$|.$2$C)";
+CT.prototype.addUndeletionChunk5c = function (chunk5c) {
+    var head = chunk5c.substr(3,2);
+    var aw = this.closeWeft2(head); // TODO optimize
+    var aw_filtre = "(?:"+CT.getFiltre(aw)+")";
+    var ids = CT.escapeMeta(chunk5c.replace(this.re_form5c,"$2"));
+    var re_ids = "(?:"+ids.replace(CT.re_filt,"|$&").substr(1)+")";
+    var re = CT.re(this.re_find_undo, {'A':aw_filtre,'C':re_ids});
+    var w5c = this.weave5c.replace(re,"$1\u007F$3"+head+"$2$3$4");
+    return w5c;
+}
+
 CT.re_filter2 = "$F|(..)";
 /** returns whether first weft covers the second */
 CT.isCover = function (weft2sup, weft2sub) {
@@ -308,8 +321,8 @@ CT.prototype.re_chunk =
     CT.re("($x)..(.).(?:\\1..\\2.)*|$X..(?:(..)$X\\3)*..",CT.$);  // the Spui regex
 /** The only method that mutates weave5c. Takes an array of atoms (patch5c),
     splits it into causality chains, applies chains to the weave. */
-CT.prototype.addPatch5c = function (patch5c) {
-    this.text5c = this.text3 = this.text1 = undefined;
+CT.prototype.addPatch5c = function (patch5c) {  // append-only order is mandatory
+    this.text5c = this.text3 = this.text1 = this.weave3 = undefined;
     // check whether yarns are known
     var chunks = patch5c.match(this.re_chunk).reverse();
     var fails = 0;
@@ -329,6 +342,8 @@ CT.prototype.addPatch5c = function (patch5c) {
             this.weave5c = this.addDeletionChunk5c(chunk);
         } else if (chunk[0]==='\u0006') { // awareness
             this.weave5c += chunk;
+        } else if (chunk[0]=='\u007F') {
+            this.weave5c = this.addUndeletionChunk5c(chunk);
         } else {
             this.weave5c = this.addChunk5c(chunk) || 
                 this.addChunk5cHardcore(chunk);
@@ -363,7 +378,7 @@ CT.prototype.re_form3 = /.../g;
     or offsets. Thus it is perfect for sending changes to the server to let
     the server assign proper offsets and return patch5c. */
 CT.prototype.convertPatch3cTo5c = function (patch3c, yarn_url) {
-    var yarn_id = this.roster.url2id[yarn_url];
+    var yarn_id = yarn_url.length==1 ? yarn_url : this.roster.url2id[yarn_url];
     if (!yarn_id)
         throw "unknown yarn url "+yarn_url; 
     var ylen = this.getYarnLength(yarn_id);
@@ -502,10 +517,6 @@ CT.prototype.getHili3 = function (weft2) {
     return cut[1];
 }
 
-CT.prototype.setAuthor = function (yarn_id) {
-    this.author = yarn_id; throw "no such thing";
-}
-
 CT.prototype.addComma = function () {
     if (!this.commas) this.commas='';
     this.commas += this.getYarnLength(); // default yarn, pov
@@ -526,13 +537,14 @@ CT.prototype.getRevertChunk3c = function (chunk) {
 }
 
 CT.prototype.re_span5c = "$5*?(.$2$B$5*.$2$E).*";
-CT.prototype.re_yarn_chunk = CT.re("$<$4|$>$4|$5");
-CT.prototype.getRevertSpan3c = function (span2) {
-    if (!this.author) throw "set (default) author";
-    var yarn5c = this.getYarn5c(this.author);
-    var b = this.author+span2[0];
-    var e = this.author+span2[1];
-    var spanre = CT.re( this.re_span5c(), {'B':b,'E':e} );
+CT.prototype.re_point5c = "$5*?(.$2$B).*";
+CT.prototype.re_yarn_chunk = CT.re("($<$4)+|($>$4)+|($5)+");
+CT.prototype.getRevertSpan3c = function (span_int) {
+    if (span_int.length!=4 || span_int[0]!=span_int[2]) throw "incorrect interval";
+    var yarn5c = this.getYarn5c(span_int[0]);
+    var b = span_int.substr(0,2);
+    var e = span_int.substr(2,2);
+    var spanre = CT.re( b==e?this.re_point5c:this.re_span5c, {'B':b,'E':e}, 'm' );
     var span = yarn5c.match(spanre);
     if (!span || !span[1]) throw "incorrect span specification";
     var chunks = span[1].match(this.re_yarn_chunk);
@@ -540,6 +552,15 @@ CT.prototype.getRevertSpan3c = function (span2) {
     for(var i=0; i<chunks.length; i++)
         patch3c.push (this.getRevertChunk3c(chunks[i]));
     return patch3c.join('');
+}
+
+CT.prototype.re_range = /^(.).\1.$/;
+CT.prototype.rollbackChanges = function (range) {
+    if (!range.match(this.re_range))
+        throw "invalid range: "+range;
+    var undo_patch = this.getRevertSpan3c(range);
+    var patch5c = this.convertPatch3cTo5c(undo_patch,range[0]);
+    this.addPatch5c(patch5c);
 }
 
 
@@ -574,7 +595,8 @@ CT.selfCheck = function () {
         }
     }
 
-    var three_authors = new CTRoster({'A':"Alice",'B':"Bob",'C':"Carol"});
+    var four_authors = new CTRoster
+        ({'A':"Alice",'B':"Bob",'C':"Carol",'D':"Dave"});
 
     function testStatics () {
         testeq("1\\.2\\-3\\]",CT.escapeMeta("1.2-3]"));
@@ -585,13 +607,13 @@ CT.selfCheck = function () {
         var re = CT.re( "abc$De$F", {'D':'d','F':'f'} );
         testeq(1," abcdef".search(re));
         testeq(true,CT.isCover("01A2B3C0","A2B1C0"));
-        testeq("0ABC",three_authors.getSortedYarnIds());
+        testeq("0ABCD",four_authors.getSortedYarnIds()); // FIXME: 0length X
         log("statics tests OK");
     }
 
 
     function testBasicCt () {
-        var test = new CT('',three_authors);
+        var test = new CT('',four_authors);
         testeq("01",test.getWeft2());
         //testeq(test.allocateYarnCode(),"A");
         testeq("",test.getText1());
@@ -633,7 +655,7 @@ CT.selfCheck = function () {
     }
 
     function testBracing () {
-        var braces = new CT('',three_authors);
+        var braces = new CT('',four_authors);
         braces.addNewVersion("Text","Alice");
         testeq("Text",braces.getText1());
         var round = braces.addNewVersion("(Text)","Bob");
@@ -646,7 +668,7 @@ CT.selfCheck = function () {
     }
 
     function testDiff () {
-        var braces = new CT('',three_authors);
+        var braces = new CT('',four_authors);
         var start = braces.addNewVersion("Text","Alice");
         var round = braces.addNewVersion("(Text)","Bob");
         braces.addNewVersion("Text","Carol");
@@ -656,75 +678,77 @@ CT.selfCheck = function () {
     }
 
     function testUndo () {
-        var test = new CT('',three_authors);
+        var test = new CT('',four_authors);
         var start = test.addNewVersion("Text","Alice");
         var round = test.addNewVersion("Tezzzt","Bob");
         testeq("T  e  zB zB zB x Bt  ",test.getHili3("01A3"));
-        test.setAuthor('B');
-        var undo_patch = test.getRevertSpan3c("02");
-        testeq("\u007FA2\u0008B1\u0008B2\u0008B3",undo_patch);
+        var undo_patch = test.getRevertSpan3c("B0B4");
+        testeq("\u007FA2\bB1\bB2\bB3\bB4",undo_patch);
         var patch5c = test.convertPatch3cTo5c(undo_patch,"Bob");
         test.addPatch5c(patch5c);
         testeq("Text",test.getText1());
-        testeq("T  e  x  t  ",test.getHili3("A3"));
+        testeq("T  e  x  t  ",test.getHili3("01A3"));
         log("undo test OK");
     }
 
     // Open problem in method signature reengineering: know no yarn ->
     // don't know where to put ack marks TODO
     function testComplexDiff () {
-        var test = new CT();
+        var test = new CT('',four_authors);
         test.addNewVersion("Tex","Alice");
         test.addNewVersion("TexNt","Alice");
         test.addNewVersion("Text","Alice");
         test.addNewVersion("TextZ","Alice");
-        testeq('6',test.getYarnLength("Alice"));
-        test.rollbackChanges("66","Alice"); // TODO add redo/undo
+        testeq('6',test.getYarnLength("A"));
+        test.rollbackChanges("A6A6","Alice"); // TODO add redo/undo
 
         var line = test.getWeft2();
 
         test.addNewVersion("Tex!","Bob");
         test.addNewVersion("LaTex!","Bob");
-        test.rollbackChanges("23","Bob");
+        test.rollbackChanges("B2B2","Bob");
         
         var hili = test.getHili3(line);
         
-        testeq("T  e  x  t B!B ",hili);
+        testeq("LB aB T  e  x  t B",hili);
+        
+        log("complex diff test OK");
     }
     
     // concurrency test
     function testConcurrency () {
-        var test = new CT();
+        var test = new CT('',four_authors);
         var base = test.addNewVersion("Test","Alice");
         testeq("Test",test.getText1());
         var fork1 = test.clone();
         var fork2 = test.clone();
         var fork3 = test.clone();
-        var w1 = fork1.addNewVersion("Te1st","Dave");
-        var w2 = fork2.addNewVersion("Te2s","Carol");
-        var pf = fork3.getPatch3c("Te3t");
-        var w3 = fork3.addPatch3c(pf,"Bob");
+        var w1 = fork1.addNewVersion("Te3st","Dave");
+        var w2 = fork2.addNewVersion("Te2st","Carol");
+        var w3 = fork3.addNewVersion("Te1st","Bob");
         
-        var p5 = fork1.getTail5c(base);
-        var p15 = fork2.getTail5c(base);
-        var p25 = fork3.getTail5c(base);
+        var p15 = fork1.getTail5c(base);
+        var p25 = fork2.getTail5c(base);
+        var p35 = fork3.getTail5c(base);
         
-        test.addPatch5c(p5);
         test.addPatch5c(p15);
         test.addPatch5c(p25);
-        testeq("Te123",test.getText1());
+        test.addPatch5c(p35);
+        testeq("Te123st",test.getText1());
         
         fork1.addPatch5c(p25);
-        fork1.addPatch5c(p15);
-        testeq("Te123",fork1.getText1());
+        fork1.addPatch5c(p35);
+        testeq("Te123st",fork1.getText1());
         
-        fork2.addPatch5c(p25);
-        fork2.addPatch5c(p5);
-        testeq("Te123",fork2.getText1());
+        fork2.addPatch5c(p35);
+        fork2.addPatch5c(p15);
+        testeq("Te123st",fork2.getText1());
         
         fork3.addPatch5c(p15);
-        fork3.addPatch5c(p5);
-        testeq("Te123",fork3.getText1());
+        fork3.addPatch5c(p25);
+        testeq("Te123st",fork3.getText1());
+        
+        log("concurrency test OK");
     }
     
     // performance test
