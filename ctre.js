@@ -8,11 +8,11 @@ CT.$ = {
     'X' : "[^\u0008\u007F]", // not a del/undel char
     'b' : "\u0001",  // ascii beginning symbol
     'e' : "\u0004", // ascii end symbol
-    'f' : "[0A-\uffff]", // feed id
+    'f' : "[0-\uffff]", // feed id
     'o' : "[0-\uffff]", // offset
-    '2' : "(?:[0A-\uffff][0-\uffff])", // feed+offset
-    '4' : "(?:(?:[0A-\uffff][0-\uffff]){2})", // feed+offset twice
-    '5' : "(?:.(?:[0A-\uffff][0-\uffff]){2})", // form5
+    '2' : "(?:[0-\uffff][0-\uffff])", // feed+offset
+    '4' : "(?:(?:[0-\uffff][0-\uffff]){2})", // feed+offset twice
+    '5' : "(?:.(?:[0-\uffff][0-\uffff]){2})", // form5
     'z' : "(?:\u007F*\u0008)", // 1-form del-undel block
     'Z' : "(?:(?:\u007F..)*\u0008..)", // 3-form del-undel
     '%' : "(?:(?:\u007F....)*\u0008....)" // 5-form del-undel
@@ -189,6 +189,14 @@ CT.dryWeft2 = function (weft2) {
     return dered;
 }
 
+CT.re_pair = /(.)(.)\1.|../mg;
+CT.commonWeft2 = function (wefta, weftb) {
+    var arr = (wefta+weftb).match(/../mg);
+    var merged = arr.sort().join('');
+    var ret = merged.replace(CT.re_pair,"$1$2");
+    return ret;
+}
+
 CT.prototype.re_trans = "(..)($W)|....";
 /** Make a transitive closure of causal dependencies; return a closed weft. */
 CT.prototype.closeWeft2 = function (weft2) {
@@ -293,7 +301,15 @@ CT.prototype.addDeletionChunk5c = function (chunk5c) {
     var re_ids = ids.match(CT.re_filt).join('|');
     var re_victim = new RegExp("((?:.....)*?...("+re_ids    // PAIN
             +"))((?:.....)*?)(?=$|...("+re_ids+"))","gm");
-    var w5c = this.weave5c.replace (re_victim,"$1\u0008$2"+head+"$3");
+    var maparr = chunk5c.replace(this.re_form5c,"-$2-$3").split('-').reverse();
+    maparr.pop();
+    var map = {};
+    while (maparr.length)
+        map[maparr.pop()] = maparr.pop();
+    function delatom (match,head,id,tail) {
+        return head+'\u0008'+id+map[id]+tail;
+    }
+    var w5c = this.weave5c.replace (re_victim,delatom);
     return w5c;
 }
 
@@ -322,6 +338,7 @@ CT.prototype.re_chunk =
 /** The only method that mutates weave5c. Takes an array of atoms (patch5c),
     splits it into causality chains, applies chains to the weave. */
 CT.prototype.addPatch5c = function (patch5c) {  // append-only order is mandatory
+    if (!patch5c) return;
     this.text5c = this.text3 = this.text1 = this.weave3 = undefined;
     // check whether yarns are known
     var chunks = patch5c.match(this.re_chunk).reverse();
@@ -352,7 +369,8 @@ CT.prototype.addPatch5c = function (patch5c) {  // append-only order is mandator
         var yarn_id = chunk[3];
         if (this.awareness)
             this.awareness[yarn_id] = undefined;
-        this.weft2 = CT.dryWeft2(this.weft2+chunk.replace(this.re_form5c,"$3"));
+        var new_ids = chunk.replace(this.re_form5c,"$3");
+        this.weft2 = CT.dryWeft2(this.weft2+new_ids);
         this.deps4c = undefined;
     }
 }
@@ -378,6 +396,7 @@ CT.prototype.re_form3 = /.../g;
     or offsets. Thus it is perfect for sending changes to the server to let
     the server assign proper offsets and return patch5c. */
 CT.prototype.convertPatch3cTo5c = function (patch3c, yarn_url) {
+    if (!patch3c) return '';
     var yarn_id = yarn_url.length==1 ? yarn_url : this.roster.url2id[yarn_url];
     if (!yarn_id)
         throw "unknown yarn url "+yarn_url; 
@@ -430,16 +449,16 @@ CT.prototype.getPatch3c = function (text1, yarn_id) {
             base1 = base1.substr(pref);
             text1 = text1.substr(pref);
             pre += pref;
-        }
-        pref = (pref>>1) + (pref>1?pref&1:0);
+        } else
+            pref>>=1;
     }
     var postf = Math.min(text1.length,base1.length);
     while (postf>0) {
         if (base1.substr(base1.length-postf)===text1.substr(text1.length-postf)) {
             base1 = base1.substr(0,base1.length-postf);
             text1 = text1.substr(0,text1.length-postf);
-        }
-        postf = (postf>>1) + (postf>1?postf&1:0);
+        } else
+            postf>>=1;
     }
     var changes3c = [];
     var that = this;
@@ -751,21 +770,99 @@ CT.selfCheck = function () {
         log("concurrency test OK");
     }
     
+    function testMultiplicationTable () {
+        var pre = document.createElement("pre");
+        document.body.appendChild(pre);
+        var users = {'O':"grid"};
+        var grid = '';
+        var line = "|  |  |  |  |  |  |  |  |  |<br/>";
+        for(var i=1; i<10; i++) {
+            users[''+i] = '['+i+']';
+            grid += line;
+        }
+        var ct = new CT('',users);
+        ct.addNewVersion(grid,'O');
+        var repos = [];
+        for(var i=1; i<10; i++) {
+            repos[i] = ct.clone();
+        }
+        var onefixlen = 5;
+        var lv = String.fromCharCode( '0'.charCodeAt(0) + 9*onefixlen - 1 );
+        var end_ver = "123456789".replace(/./g,"$&"+lv);
+        end_ver = "01" + end_ver + 'O'+ct.getYarnLength('O');
+        function advance (l) {
+            var repo = repos[l];
+            var ll = ''+l;
+            //if (repo.getWeft2()===end_ver)
+            //    return false;
+            var pos = repo.getYarnLength(ll);
+            var progress = pos ? (pos.charCodeAt(0)-'0'.charCodeAt(0)+1)/5 : 0;
+            if (progress==9)
+                return false;
+            var next = progress+1;
+            var offset = progress*line.length + l*3 -3 +1;
+            var num = l*next;
+            var ins = (num>9?'':'0') + num;
+            var text =  repo.getText1().substr(0,offset) +
+                        ins +
+                        repo.getText1().substr(offset+2) ;
+            repo.addNewVersion(text,ll);
+            return true;
+        }
+        function pull (a,b) {
+            var repoa = repos[a];
+            var repob = repos[b];
+            var base = CT.commonWeft2(repoa.getWeft2(),repob.getWeft2());
+            var patch_b2a = repob.getTail5c(base);
+            repoa.addPatch5c(patch_b2a);
+        }
+        
+        var done = 0;
+        while (done<9) {
+            var a = Math.ceil(Math.random()*9);
+            var b = Math.ceil(Math.random()*19);
+            if (b>9)
+                advance(a);
+            else
+                pull(a,b);
+            pre.innerHTML = a+(b>9?'':" "+b)+"<br/>"+repos[a].getText1();
+            done = 0;
+            for(var i=1; i<=9; i++)
+                if (repos[i].getWeft2()===end_ver)
+                    done++;
+        }
+        //pre.parentNode.removeChild(pre);
+        log("multiplication table test OK");
+        // testeq
+    }
+    
     // performance test
     function testPerformance () {
-        var ct = new CT();
-        var users = ["Alice","Bob","Carol","Dave","Emma","Fred","George",
-                     "Hans","Ivan","Joost","Kevin","Lindiwe","Matt"];
+        var users = 
+           {'A':"Alice",
+            'B':"Bob",
+            'C':"Carol",
+            'D':"Dave",
+            'E':"Emma",
+            'F':"Fred",
+            'G':"George",
+            'H':"Hans",
+            'I':"Ivan",
+            'J':"Joost",
+            'K':"Kevin",
+            'L':"Lindiwe",
+            'M':"Matt"};
+        var ct = new CT('',users);
         while (ct.weave5c.length<5000000) {
             var patches = [];
             var text = ct.getText1();
             var start = ct.getWeft2();
-            for(var i=0; i<users.length; i++) {
+            for(var yarn_id in users) {
                 var coin = Math.random();
                 var text_new = '';
                 var hilichunk = '';
                 if (coin<0.8) { // add some text
-                    var len = Math.round()*20;
+                    var len = Math.round(Math.random()*20);
                     var symb = [];
                     for(var i=0; i<len; i++)
                         symb.push(String.fromCharCode(Math.random()*30+0x61));
@@ -776,7 +873,7 @@ CT.selfCheck = function () {
                     text_new = head + add + tail;
                     hilichunk = add.replace(/(.)/mg,"$1"+yarn_id+" ");
                 } else {
-                    var len = Math.round()*20;
+                    var len = Math.round(Math.random()*20);
                     if (len>text.length)
                         len = text.length;
                     var off = Math.random() * (text.length-len);
@@ -796,7 +893,7 @@ CT.selfCheck = function () {
                 ct.addPatch5c(patches.pop());
             var hili = ct.getHili3(start);
             hili = hili.replace(/.  |(...)/mg,"$1");
-            var spit = hili.match(/.(..)(.\1)*/mg);
+            var spit = hili.match(/.(..)(.\1)* /mg);
             split.sort();
             testeq(chunks_sorted,split);
         }
@@ -811,6 +908,7 @@ CT.selfCheck = function () {
     testUndo();
     testComplexDiff();
     testConcurrency();
-    testPerformance();
+    testMultiplicationTable();
+    //testPerformance();
 
 }
