@@ -1,0 +1,65 @@
+<html>
+    <head>
+        <style type="text/css">
+            div.edit {
+                width: 48%;
+                height: 48%;
+                margin: 2px;
+                display: block;
+                float: left;
+                border: dotted 1px black;
+            }
+        </style>
+        <script type="text/javascript" src="stacktrace.js"></script>
+        <script type="text/javascript" src="ctre.js"></script>
+        <script type="text/javascript">
+            var divs = {};
+            var repos = {};
+            function onkeyup () {
+                if (!this.innerHTML) return;
+                var text = this.innerHTML.replace(/<[^<>]>/g,'');
+                var id = this.getAttribute('id');
+                var repo = repos[id];
+                var weft2 = repo.getWeft2();
+                repo.addNewVersion(text,id);
+                if (text!=repo.getText1()) {
+                    alert(text+"!="+repo.getText1());
+                }
+            }
+            function merge (from,to) {
+                var base = CT.commonWeft2
+                    (repos[from].getWeft2(),repos[to].getWeft2());
+                var patch = repos[from].getTail5c(base);
+                if (patch.length>0) {
+                    repos[to].addPatch5c(patch);
+                    divs[to].innerHTML = repos[to].getText1();
+                    //if (repos[from].weft2==repos[to].weft2 &&
+                    //        repos[from].weave5c!=repos[to].weave5c) {
+                    //    alert(repos[from].weave5c+" \n != \n "+repos[to].weave5c+
+                    //            "\n patch \n"+patch);
+                    //}
+                }
+            }
+            window.onload = function () {
+                var users = {'1':"user1",'2':"user2",'3':"user3",'4':"user4"};
+                var ct = new CT('',users);
+                for(var id in users) {
+                    var div = document.getElementById(id);
+                    divs[id] = div;
+                    repos[id] = ct.clone();
+                    div.onkeyup = onkeyup;
+                }
+                setInterval(function(){merge('1','2');},1003);
+                setInterval(function(){merge('2','4');},1002);
+                setInterval(function(){merge('4','3');},1001);
+                setInterval(function(){merge('3','1');},1000);
+            }
+        </script>
+    </head>
+    <body>
+        <div class='edit' contentEditable='true' id='1'></div>
+        <div class='edit' contentEditable='true' id='2'></div>
+        <div class='edit' contentEditable='true' id='3'></div>
+        <div class='edit' contentEditable='true' id='4'></div>
+    </body>
+</html>

@@ -4,8 +4,11 @@ CT.prototype.leery = true;
 CT.$ = {
     '<' : "\u0008", // del char
     '>' : "\u007F", // undel char
+    'a' : "\u0006", // awareness
     'x' : "[\u0008\u007F]", // del/undel char
     'X' : "[^\u0008\u007F]", // not a del/undel char
+    'm' : "[\u0001\u0004\u0008\u007F\u0006]", // meta char
+    'M' : "[^\u0001\u0004\u0008\u007F\u0006]", // not a meta char
     'b' : "\u0001",  // ascii beginning symbol
     'e' : "\u0004", // ascii end symbol
     'f' : "[0-\uffff]", // feed id
@@ -267,6 +270,9 @@ CT.prototype.addChunk5cHardcore = function (chunk5c) {
     var end = split[4];
     var head_aw_weft = this.closeWeft2(head+chunk5c.substr(1,2));
     var siblings = caused.match( CT.re( this.re_siblings, {'R':root}, 'gm') );
+    if (!siblings) {
+        alert("why?");
+    }
     var i=0;
     for(; i<siblings.length; i++) {
         var sib_aw_weft = this.closeWeft2(siblings[i].substr(3,2));
@@ -316,7 +322,7 @@ CT.prototype.addDeletionChunk5c = function (chunk5c) {
 CT.prototype.re_find_undo = "($5*?)($<$C)($A)($5*?)(?=$|.$2$C)";
 CT.prototype.addUndeletionChunk5c = function (chunk5c) {
     var head = chunk5c.substr(3,2);
-    var aw = this.closeWeft2(head); // TODO optimize
+    var aw = this.closeWeft2(head); // TODO optimize FIXME no shared ids
     var aw_filtre = "(?:"+CT.getFiltre(aw)+")";
     var ids = CT.escapeMeta(chunk5c.replace(this.re_form5c,"$2"));
     var re_ids = "(?:"+ids.replace(CT.re_filt,"|$&").substr(1)+")";
@@ -334,7 +340,7 @@ CT.isCover = function (weft2sup, weft2sub) {
 }
 
 CT.prototype.re_chunk =
-    CT.re("($x)..(.).(?:\\1..\\2.)*|$X..(?:(..)$X\\3)*..",CT.$);  // the Spui regex
+    CT.re("(?:$a....)+|($x)..(.).(?:\\1..\\2.)*|$M..(?:(..)$M\\3)*..|$m.{4}",CT.$);  // the Spui regex
 /** The only method that mutates weave5c. Takes an array of atoms (patch5c),
     splits it into causality chains, applies chains to the weave. */
 CT.prototype.addPatch5c = function (patch5c) {  // append-only order is mandatory
@@ -361,10 +367,15 @@ CT.prototype.addPatch5c = function (patch5c) {  // append-only order is mandator
             this.weave5c += chunk;
         } else if (chunk[0]=='\u007F') {
             this.weave5c = this.addUndeletionChunk5c(chunk);
+        } else if (chunk[0]=='\u0001' || chunk[0]=='\u0004') {
+            throw "begin/end chars in a patch";
         } else {
             this.weave5c = this.addChunk5c(chunk) || 
                 this.addChunk5cHardcore(chunk);
         }
+        var fack = this.weave5c.indexOf('\u0006');
+        if (fack!=-1 && fack<this.weave5c.indexOf('\u0004'))
+            alert('misplaced ack');
         fails = 0;
         var yarn_id = chunk[3];
         if (this.awareness)
@@ -373,6 +384,8 @@ CT.prototype.addPatch5c = function (patch5c) {  // append-only order is mandator
         this.weft2 = CT.dryWeft2(this.weft2+new_ids);
         this.deps4c = undefined;
     }
+    if (chunks.length>0)
+        alert('patch fails');
 }
 
 CT.prototype.re_hist = "(...(?:$V))|(.....)";
@@ -386,7 +399,10 @@ CT.prototype.getVersion = function (weft2) {
 CT.prototype.getTail5c = function (weft2) {
     var re_fre = CT.re(this.re_hist, {'V':CT.getFiltre(weft2,"li")});
     var weave5cver = this.weave5c.replace(re_fre,"$2");
-    return weave5cver;
+    if (!weave5cver) return '';
+    var atoms = weave5cver.replace(this.re_form5c,"$3$1$2").match(/.{5}/mg);
+    var ret = atoms.sort().join('').replace(/(..)(...)/mg,"$2$1");
+    return ret;
 }
 
 CT.prototype.re_form3 = /.../g;
@@ -441,7 +457,7 @@ CT.prototype.getPatch3c = function (text1, yarn_id) {
     var base3 = base.getText3();
     var base1 = base.getText1();
     if (text1===base1)
-        return this.getWeft2();
+        return '';
     var pref = Math.min(text1.length,base1.length);
     var pre = 0;
     while (pref>0) {
@@ -832,8 +848,10 @@ CT.selfCheck = function () {
                     done++;
         }
         //pre.parentNode.removeChild(pre);
+        text3 = repos[1].getText3();
+        for(var i=1; i<=9; i++)
+            testeq(repos[i].getText3(),text3);
         log("multiplication table test OK");
-        // testeq
     }
     
     // performance test
@@ -912,3 +930,5 @@ CT.selfCheck = function () {
     //testPerformance();
 
 }
+
+/** big fixme: the entire thing is a bit +-1 fragile, need strict spec and tests */
