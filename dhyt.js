@@ -48,6 +48,8 @@ DHYT.re_split = CT.re("(.$I)$3*?");
 DHYT.prototype.toHTML = function (range) {
     range = range || "0001";
     // parse headers
+    // well, actually we might be interested in a subset of the entire text
+    var header_text, pre_text, text, post_text;
     // list split points
     var splits = [];
     splits.push(this.selection.toString());
@@ -57,6 +59,10 @@ DHYT.prototype.toHTML = function (range) {
         splits.push(headers[id].chain);
     // make regex
     var rex = CT.pos2regex(splits.join(''));
+    // take split ids from before the range
+    // clean headers from pre-points
+        // wipe empty headers
+        // open touched non-empty headers
     // split
     var chunks = body3.match(DHYT.re_split);
     chunks = chunks.reverse();
@@ -66,6 +72,7 @@ DHYT.prototype.toHTML = function (range) {
         var id = chunk.substr(1,2);
         var chain = chains[id];  // chain.type etc
         // well, we do not know yet whether it is begin, end or comma
+        // clear chain from id
         var mode;
         // process structurals: insert tags
         if (structurals[chain.type]) {
