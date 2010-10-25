@@ -1,3 +1,15 @@
+/** Causal Trees (CT) version control implementation. For the theory see
+ *  Victor Grishchenko "Deep hypertext with embedded revision control
+ *  implemented in regular expressions"
+ *  http://portal.acm.org/citation.cfm?id=1832772.1832777 */
+function CT (weave5c,roster) {
+    if (this.leery && weave5c && !weave5c.match(this.re_wv5csyn))
+        throw "invalid weave5c";
+    // these two are the only "primary" members; the rest is derived
+    this.weave5c = weave5c || "\u00010000\u00040001";
+    this.roster = roster || new CTRoster();
+}
+
 /** Turns on paranoid correctness checks. */
 CT.prototype.leery = true;
 
@@ -9,13 +21,16 @@ CT.$ = {
     'X' : "[^\u0008\u007F]", // not a del/undel char
     'm' : "[\u0001\u0004\u0008\u007F\u0006]", // meta char
     'M' : "[^\u0001\u0004\u0008\u007F\u0006]", // not a meta char
+    'n' : "\u0000", // annotation/marker
     'b' : "\u0001",  // ascii beginning symbol
     'e' : "\u0004", // ascii end symbol
     'f' : "[0-\uffff]", // feed id
     'o' : "[0-\uffff]", // offset
+    '1' : "(?:.|\\s)",
     '2' : "(?:[0-\uffff][0-\uffff])", // feed+offset
+    '3' : "(?:(?:.|\\s)[0-\uffff][0-\uffff])",
     '4' : "(?:(?:[0-\uffff][0-\uffff]){2})", // feed+offset twice
-    '5' : "(?:.(?:[0-\uffff][0-\uffff]){2})", // form5
+    '5' : "(?:(?:.|\\s)(?:[0-\uffff][0-\uffff]){2})", // form5
     'z' : "(?:\u007F*\u0008)", // 1-form del-undel block
     'Z' : "(?:(?:\u007F..)*\u0008..)", // 3-form del-undel
     '%' : "(?:(?:\u007F....)*\u0008....)" // 5-form del-undel
@@ -37,22 +52,11 @@ CT.fill = function (template,values) {
 
 CT.re = function (template,values,flags) {
     var expr = CT.fill(template,values);
-    return new RegExp(expr,flags||"gm");
+    return new RegExp(expr,flags==undefined?"gm":flags);
 }
 
 CT.prototype.re_wv5csyn = 
     CT.re("^$b0000($X$4(($>$4)*$<$4)*)*$e0001(.$4)*$");
-/** Causal Trees (CT) version control implementation. For the theory see
- *  Victor Grishchenko "Deep hypertext with embedded revision control
- *  implemented in regular expressions"
- *  http://portal.acm.org/citation.cfm?id=1832772.1832777 */
-function CT (weave5c,roster) {
-    if (this.leery && weave5c && !weave5c.match(this.re_wv5csyn))
-        throw "invalid weave5c";
-    // these two are the only "primary" members; the rest is derived
-    this.weave5c = weave5c || "\u00010000\u00040001";
-    this.roster = roster || new CTRoster();
-}
 
 CT.prototype.clone = function () {
     return new CT(this.weave5c,this.roster);
@@ -96,12 +100,11 @@ CTRoster.prototype.recodeTo = function (form5c, roster) {
 }
 
 
-CT.prototype.re_weave2weft = /...(..)/g;
 /** Returns the current revision's vector timestamp (i.e. a weft) in the
     canonic form (no redundancy, sorted by yarn id). */
 CT.prototype.getWeft2 = function () {
     if (this.weft2) return this.weft2; 
-    var raw = this.weave5c.replace(this.re_weave2weft,"$1");
+    var raw = this.weave5c.replace(CT.re_5,"$3");
     this.weft2 = CT.dryWeft2(raw);
     return this.weft2;
 }
@@ -116,26 +119,47 @@ CT.prototype.getWeave5c = function () {
     return String.fromCharCode(ids.charCodeAt(ids.length-1)+1);
 }*/
 
-CT.prototype.re_3to1 = /(.)../g;
+CT.re_2 = CT.re("($2)");
+CT.re_3 = CT.re("($1)($2)");;
+CT.slim3to1 = function (form3) {
+    return form3.replace(CT.re_3,"$1");
+}
+
 /** Returns the current version in almost-plain text (still has markers, e.g.
  *  \1 in the beginning and \4 in the end.  */
 CT.prototype.getText1 = function () {
-    return this.text1 || (this.text1=this.getText3().replace(this.re_3to1,"$1"));
+    return this.text1 || (this.text1=this.getText5c().replace(CT.re_5,"$1"));
 }
 
-CT.prototype.re_5cto3 = /(.)..(..)/g;
+CT.re_5 = CT.re("($1)($2)($2)");
 /** Returns the 3-form of the text, i.e. symbol-author-offset tuples. */
 CT.prototype.getText3 = function () {
-    return this.text3 || (this.text3=this.getText5c().replace(this.re_5cto3,"$1$2"));
+    return this.text3 || (this.text3=this.getText5c().replace(CT.re_5,"$1$3"));
 }
 
 CT.prototype.getWeave3 = function () {
-    return this.weave3 || (this.weave3=this.weave5c.replace(this.re_5cto3,"$1$2"));
+    return this.weave3 || (this.weave3=this.weave5c.replace(CT.re_5,"$1$3"));
+}
+
+CT.prototype.re_range3 = "$3*?(.$E$3*?.$E)";
+CT.prototype.getText3Range = function (range) {
+    if (!CT.test(range,"$2$2")) return null;
+    var t3 = this.getText3();
+    var re_ends = "(?:"+range.substr(0,2)+'|'+range.substr(2,4)+')';
+    var re_range = CT.re(this.re_range3,{'E':re_ends});
+    var m = t3.match(re_range);
+    return m && m[1];
+}
+
+CT.prototype.getText1Range = function (range) {
+    var range3 = this.getText3Range(range);
+    var range1 = CT.slim3to1(range3);
+    return range1;
 }
 
 CT.prototype.re_scouring = 
-    CT.re(".{5}(?:(?:$>....)+$<....)*$<....(?:$x....)*|(.{5})(?:$x....)*");
-CT.prototype.re_weave5c = CT.re("^$b0000((?:...[^0].)*)$e0001((?:.{5})*)$",CT.$,"m");
+    CT.re("$5(?:(?:$>$4)+$<$4)*$<$4(?:$x$4)*|($5)(?:$x$4)*");
+CT.prototype.re_weave5c = CT.re("^$b0000($5*?)$e0001($5*)$",CT.$,"m");
 // any deleted and undeleted but finally deleted    OR    whatever
 /** Text5c is derived from weave5c by scouring. */
 CT.prototype.getText5c = function () {
@@ -148,7 +172,7 @@ CT.prototype.getText5c = function () {
     return this.text5c;
 }
 
-CT.prototype.re_deps = /.(.).\1.|.(....)/g;
+CT.prototype.re_deps = CT.re("$1(.).\\1.|$1($4)");
 /** Deps4 contains inter-feed causal dependencies. */
 CT.prototype.getDeps4c = function () {
     return this.deps4c || (this.deps4c=this.weave5c.replace(this.re_deps,"$2"));
@@ -157,6 +181,11 @@ CT.prototype.getDeps4c = function () {
 CT.re_meta = /([\\\.\^\$\*\+\?\(\)\[\]\{\}\:\=\!\|\,\-])/g;
 CT.escapeMeta = function (re_str) {
     return re_str.replace(CT.re_meta,"\\$1");
+}
+
+CT.test = function (str,re) {
+    var re_re = CT.re(re);
+    return re_re.test(str);
 }
 
 CT.re_filt = /(\\.|.)(\\.|.)/g;
@@ -284,7 +313,7 @@ CT.prototype.addChunk5cHardcore = function (chunk5c) {
 }
 
 CT.prototype.re_patch =
-    "^((?:.{5})*?)(...$C(?:$x....)*)(...(?:$A).*)$";
+    "^($5*?)($1$2$C(?:$x$4)*)($1$2(?:$A).*)$";
 /** The streamlined weave patching method. May fail in case of unaware
     (i.e. concurrent) siblings. */
 CT.prototype.addChunk5c = function (chunk5c) {
@@ -340,7 +369,7 @@ CT.isCover = function (weft2sup, weft2sub) {
 }
 
 CT.prototype.re_chunk =
-    CT.re("(?:$a....)+|($x)..(.).(?:\\1..\\2.)*|$M..(?:(..)$M\\3)*..|$m.{4}",CT.$);  // the Spui regex
+    CT.re("(?:$a$4)+|($x)..(.).(?:\\1..\\2.)*|$M..(?:(..)$M\\3)*..|$m.{4}",CT.$);  // the Spui regex
 /** The only method that mutates weave5c. Takes an array of atoms (patch5c),
     splits it into causality chains, applies chains to the weave. */
 CT.prototype.addPatch5c = function (patch5c) {  // append-only order is mandatory
@@ -388,7 +417,7 @@ CT.prototype.addPatch5c = function (patch5c) {  // append-only order is mandator
         alert('patch fails');
 }
 
-CT.prototype.re_hist = "(...(?:$V))|(.....)";
+CT.prototype.re_hist = "($3(?:$V))|($5)";
 /** Returns a CT object wrapping a historical version of the weave. */
 CT.prototype.getVersion = function (weft2) {
     var re_fre = CT.re(this.re_hist, {'V':CT.getFiltre(weft2)});
@@ -405,7 +434,7 @@ CT.prototype.getTail5c = function (weft2) {
     return ret;
 }
 
-CT.prototype.re_form3 = /.../g;
+CT.prototype.re_form3 = CT.re("$3");
 /** Takes patch3c, adds atom ids, adds the resulting patch5c.
     Note: patch3c is already position-independent, different from offset-
     content change specification. Still, patch3c mentions no own yarn ids
@@ -446,7 +475,8 @@ CT.weft2Covers = function (weft2, atom) {
     return cover && cover[1]>=atom[1];
 }
 
-CT.prototype.re_del3to5 = /.(..)/g;
+CT.re_1 = CT.re("($1)");
+CT.re_3 = CT.re("($1)($2)");
 /** Serialize text changes as a patch. Changes are detected using simple
   * heuristics (TODO: diff-match-patch). 
   * @param text1    the new text (including metasymbols)
@@ -487,11 +517,11 @@ CT.prototype.getPatch3c = function (text1, yarn_id) {
         if (sibl[0]!='0') if (!yarn_id || sibl[0]!=yarn_id) // optimization
             changes3c.push('\u0006'+sibl[0]+that.getYarnLength(sibl[0]));
         changes3c.push(text.charAt(0)+cause);
-        changes3c.push(text.substr(1).replace(/(.)/g,"$101"));
+        changes3c.push(text.substr(1).replace(CT.re_1,"$101"));
     }
     function append_removal (offset, length) {
         var chunk = base3.substr(offset*3,length*3);
-        changes3c.push(chunk.replace(/.(..)/g,"\u0008$1"));
+        changes3c.push(chunk.replace(CT.re_3,"\u0008$2"));
     }
     var p;
     if (text1.length==0) { //removal
@@ -519,7 +549,22 @@ CT.prototype.addNewVersion = function (text1,yarn_url) {
     return this.getWeft2();
 }
 
-CT.prototype.re_pickyarn = "(...)($Y.)|.....";
+CT.re_pos = CT.re("$2",{},'');
+CT.prototype.insertText = function (pos,text,author) {
+    //if (author.length>1) author = this.roster.url2id[author];
+    //if (!author || !this.roster.id2url[author]) throw "no author";
+    if (!CT.re_pos.test(pos) || !CT.isCover(this.getWeft2(),pos))
+        throw "invalid pos";
+    if (!text) return;
+    var patch3c = text.substr(0,1) + pos +
+        text.substr(1).replace(CT.re_1,"$&01");
+    // fixme awareness, test
+    var patch5c = this.convertPatch3cTo5c(patch3c,author);
+    this.addPatch5c(patch5c);
+    return patch5c.substr(patch5c.length-2,2);
+}
+
+CT.prototype.re_pickyarn = "($3)($Y.)|$5";
 CT.prototype.re_improper5 = /(..)(.)(..)/mg;
 CT.prototype.getYarn5c = function (yarn_id) {
     if (this.leery && yarn_id.length!=1) throw "invalid yarn_id";
@@ -530,7 +575,7 @@ CT.prototype.getYarn5c = function (yarn_id) {
     return form5c;
 }
 
-CT.prototype.re_white = "(.)(?:$F)|(..).";
+CT.prototype.re_white = "($1)(?:$F)|($1.).";
 CT.prototype.re_mark = CT.re("(. )|(..) ");
 CT.prototype.re_weave3 = CT.re("$b  ((?:[^$e]..)*)$e  .*",CT.$,"m");
 //CT.prototype.re_scour = CT.re("$3$Z*?$<  $Z*|($3$Z*)");
@@ -598,37 +643,62 @@ CT.prototype.rollbackChanges = function (range) {
     this.addPatch5c(patch5c);
 }
 
+CT.re_ann = CT.re("\0($2)(..)");
+CT.prototype.getAnnotated = function (ann5c) {
+    var id2ann = {};
+    var ids = ann5c.replace(CT.re_ann,
+                function(atom,id,ann_id){
+                    if (id2ann[id])
+                        id2ann[id]+=atom;
+                    else
+                        id2ann[id]=atom;
+                    return id;
+                });
+    var re_ids = CT.getIdFilter(ids);
+    var re_atom = CT.re("($5*?)(.$2($I))",{'I':re_ids});
+    var ann_weave = this.weave5c.replace(re_atom,
+            function(match,pre,atom,id){
+                return pre+id2ann[id]+atom;
+            });
+    return new CT(ann_weave,this.authors);
+}
 
-CT.selfCheck = function () {
+
     
-    function stacktrace() { 
+CT.printStackTrace = function() { 
         function st2(f) {
             return !f ? [] :  st2(f.caller).concat
                 ([f.toString().split('(')[0].substring(9) + 
                   '(' + f.arguments.join(',') + ')']);
         }
-        return st2(arguments.callee.caller);
-    }
+    return st2(arguments.callee.caller);
+}
     
-    function testeq (must, is) {
+CT.testeq = function (must, is) {
         if (must!==is) {
             var msg = "equality test fail: must be '"+must+"' have '"+is+"'";
-            log(msg);
-            if (printStackTrace) {
-                var stack = printStackTrace();
+            CT.log(msg);
+            if (CT.printStackTrace) {
+                var stack = CT.printStackTrace();
                 stack.shift(); stack.shift(); stack.shift();
-                log(stack.join('\n'));
+                CT.log(stack.join('\n'));
             }
             throw msg;
         }
-    }
-    function log (rec) {
+}
+CT.log = function (rec) {
         if (window) {
             var p = document.createElement("pre");
             p.appendChild(document.createTextNode(rec));
             document.body.appendChild(p);
-        }
-    }
+        } else
+            console.log(rec+"\n");
+}
+
+CT.selfCheck = function () {
+
+    var testeq=CT.testeq;
+    var log = CT.log;
 
     var four_authors = new CTRoster
         ({'A':"Alice",'B':"Bob",'C':"Carol",'D':"Dave"});
@@ -687,6 +757,14 @@ CT.selfCheck = function () {
         testeq("01A3B1",test.getYarnAwareness("B")); // awareness decl
 
         log("basic functionality tests OK");
+    }
+
+    function testNewLine () {
+        var nl = new CT('',four_authors);
+        nl.addNewVersion("a\nb",'A');
+        testeq("a\nb",nl.getText1());
+        testeq("aA0\nA1bA2",nl.getText3());
+        log("newline tsting OK");
     }
 
     function testBracing () {
@@ -921,6 +999,7 @@ CT.selfCheck = function () {
 
     testStatics();
     testBasicCt();
+    testNewLine();
     testBracing();
     testDiff();
     testUndo();
