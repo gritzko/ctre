@@ -25,13 +25,13 @@ CT.$chars = {
     'b' : "\u0001",
     'e' : "\u0004",
     '<' : "\u0008", // del char
-    '>' : "\u0015", // undel char
+    '>' : "\u0015", // undel char  -- fixme undo 15 or 21 ???
     '@' : "\u0006", // awareness
     '!' : "\u0005", // interval marker
-    'x' : "[\u0008\u0021]", // del/undel char
-    'X' : "[^\u0008\u0021]", // not a del/undel char
-    'm' : "[\u0008\u0021\u0006\u0005]", // meta char
-    'M' : "[^\u0008\u0021\u0006\u0005]", // not a meta char
+    'x' : "[\u0008\u0015]", // del/undel char
+    'X' : "[^\u0008\u0015]", // not a del/undel char
+    'm' : "[\u0008\u0015\u0006\u0005]", // meta char
+    'M' : "[^\u0008\u0015\u0006\u0005]", // not a meta char
     'b' : "\u0001",  // start symbol
     'e' : "\u0004" // end symbol
 };
@@ -44,7 +44,7 @@ CT.$ = {
     '3' : "(?:(?:.|\\s)[0-\uffff][/-\uffff])",
     '4' : "(?:(?:[0-\uffff][/-\uffff]){2})", // feed+offset twice
     '5' : "(?:(?:.|\\s)(?:[0-\uffff][/-\uffff]){2})", // form5
-    'z' : "(?:\u0008\u0021+)"
+    'z' : "(?:\u0008\u0015+)"
 };
 CT.$.__proto__ = CT.$chars;
 
@@ -72,7 +72,7 @@ for(var i in CT.$chars) {
     CT.$[i+'3'] = CT.fill("(?:"+CT.$chars[i]+"$2)");
     CT.$[i+'5'] = CT.fill("(?:"+CT.$chars[i]+"$4)");
 }
-CT.$["z3"] = CT.re("(?:$<$2(?:$>$2)+)");
+CT.$["z3"] = CT.fill("(?:$<$2(?:$>$2)+)");
 CT.re_wv5csyn = CT.re("^$b0000(%X5((%>5)*%<5)*)*$e0001(%.5)*$");
 
 CT.prototype.clone = function () {
@@ -197,7 +197,10 @@ CT.prototype.getText5c = function () {
     var body = parse[1] || '';
     var stash = parse[2] || '';*/
     var txt5c = this.weave5c.replace(CT.re_scouring,"$1$3$2");
-    this.text5c = txt5c.match(CT.re_weave5c)[1];
+    var parsed = txt5c.match(CT.re_weave5c);
+    if (parsed==null)
+        alert('alarm!');
+    this.text5c = parsed[1];
     return this.text5c;
 }
 
@@ -262,7 +265,7 @@ CT.getYarnLength = function (weft2,yarnid) {
     if (!yarnid || yarnid.length!=1)
         throw "no yarn id provided";
     var pos = 0;
-    while ( -1!=(pos=weft2.indexOf(yarnid)) && (pos&1) );
+    while ( -1!=(pos=weft2.indexOf(yarnid,pos+1)) && (pos&1) );
     return pos!=-1 ? weft2[pos+1] : '/';
 }
 
@@ -301,9 +304,9 @@ CT.prototype.getAwarenessWeftII = function (id) {
     return this.weftsII[id]=weftII;
 }
 
-CT.re_chunk = CT.re("%m5|$1$2($2)($1\\1$2)*");
+CT.re_chunk = CT.re("%m5|$1$2(?:($2)$1\\1)*$2");
 CT.re_block = "($5*?)(($1)$2($I))(%!5*)(%@5*)((?:%<5%>5*)*)(%>5*)(?=$1($2)($2))";
-CT.re_causal_block = "^($5*?)($3$P)((?:$1$P$2$5*?)*)($1(?:$W)$2|$)";
+CT.re_causal_block = "^($5*?)($3$P)(%m5*)((?:$1$P$2$5*?)*)($1(?:$W)$2|$)";
 CT.re_sibling_block = CT.re("$1($2)$2$5*?(?=$1\\1$2|$)");
 /** I do not verify append-only/no dups in this method. */
 CT.prototype.addPatch5c = function (patch5c) {
@@ -349,13 +352,13 @@ CT.prototype.addPatch5c = function (patch5c) {
         prev_count = ids.length;
         var re_ins_id = CT.ids2re(ids.join(''));
         var re_inserts = CT.re(CT.re_block,{I:re_ins_id});
-        weave5c = this.weave5c.replace(re_inserts,insert);
+        weave5c = weave5c.replace(re_inserts,insert);
     }
     this.weave5c = weave5c;
     delete this.weft2; // todo opt
     this.deps4c = this.weave3 = this.text5c = this.text3 = this.text1 = undefined;
     var that = this;
-    function rebubble (match,before,atom,caused,after) {
+    function rebubble (match,before,atom,meta,caused,after) {
         var siblings = caused.match(CT.re_sibling_block);
         function weftIIorder (a,b) {
             var ida = a.substr(3,2);
@@ -365,15 +368,21 @@ CT.prototype.addPatch5c = function (patch5c) {
             return wIIa > wIIb ? -1 : 1;
         }
         siblings.sort(weftIIorder);
-        return before+atom+siblings.join('')+after;
+        var ret = before+atom+meta+siblings.join('')+after;
+        if (match%5 || ret%5)
+            alert("alarm!");
+        return ret;
     }
     while (rebubbling.length) {
         var prnt = rebubbling.pop();
+        var prntesc = "(?:"+CT.escapeMeta(prnt)+')';
         var prnt_aw_weft = this.closeWeft2(prnt);
         var re_prnt_aw = CT.getFiltre(prnt_aw_weft);
         var re_causal = CT.re
-            ( CT.re_causal_block, {'P':prnt,'W':re_prnt_aw}, 'm' );
+            ( CT.re_causal_block, {'P':prntesc,'W':re_prnt_aw}, 'm' );
         this.weave5c = this.weave5c.replace(re_causal,rebubble);
+        if (this.weave5c.length%5)
+            alert("alarm!");
     }
 }
 
@@ -678,14 +687,14 @@ CT.prototype.getYarn5c = function (yarn_id) {
 }
 
 
-CT.re_white = "($1)(?:$F)|($1.).";
-CT.prototype.re_mark = CT.re("(.0)|(..)0");
-CT.re_weave3 = CT.re(".0.%m5*|($5)(%!5*)%@5*(%x5*)");
+CT.re_white = "($1)(?:$F)|($1$f)$o";
+CT.re_mark = CT.re("($10)|($1$f)0");
+CT.re_weave3 = CT.re("$10$o%m3*|($3)(%!3*)%@3*(%x3*)");
 //CT.prototype.re_scour = CT.re("$3$Z*?$<  $Z*|($3$Z*)");
-CT.prototype.re_diff = CT.re([
+CT.re_diff = CT.re([
                         "$X00%z3*?$<00%z3*",      // old, old deleted
-                        "($X0)0%z3*?$<(.).%z3*",  // old, just deleted
-                        "($X)00%z3*?(?:$>([^0]).)+$<(0)0%z3*", // old del, just recovered
+                        "($X0)0%z3*?$<($f)$o%z3*",  // old, just deleted
+                        "($X)00%z3*?(?:$>([^0])$o)+$<(0)0%z3*", // old del, undo
                         "($X00)%z3*",            // old, no changes
                         "$X..%z3*?$<..%z3*",      // phantom (new, just deleted)
                         "($X..)%z3*"             // new, still alive
@@ -693,10 +702,10 @@ CT.prototype.re_diff = CT.re([
 CT.prototype.getHili3 = function (weft2) {
     var w3 = this.getWeave3();
     var w3prep = w3.replace(CT.re_weave3,"$2$1$3");
-    var re_paint_white = CT.re(this.re_white,{'F':CT.getFiltre(weft2)});
+    var re_paint_white = CT.re(CT.re_white,{'F':CT.getFiltre(weft2)});
     var spaced = w3prep.replace(re_paint_white,"$1$20");
-    var marked = spaced.replace(this.re_mark,"$1$20");
-    var weave_hili = marked.replace(this.re_diff,"$1$2"+"$3$4$5"+"$6"+"$7");
+    var marked = spaced.replace(CT.re_mark,"$1$20");
+    var weave_hili = marked.replace(CT.re_diff,"$1$2"+"$3$4$5"+"$6"+"$7");
     return weave_hili;
 }
 
@@ -851,7 +860,7 @@ CT.selfCheck = function () {
         var round = braces.addNewVersion("(Text)","Bob");
         braces.addNewVersion("Text","Carol");
         braces.addNewVersion("[Text]","Carol");
-        testeq( "[C ( CT  e  x  t  ]C ) C", braces.getHili3(round) );
+        testeq( "[C0(0CT00e00x00t00]C0)0C", braces.getHili3(round) );
         log("basic diff OK");
     }
 
@@ -859,13 +868,13 @@ CT.selfCheck = function () {
         var test = new CT('',four_authors);
         var start = test.addNewVersion("Text","Alice");
         var round = test.addNewVersion("Tezzzt","Bob");
-        testeq("T  e  zB zB zB x Bt  ",test.getHili3("01A3"));
+        testeq("T00e00zB0zB0zB0x0Bt00",test.getHili3("01A3"));
         var undo_patch = test.getRevertSpan3c("B0B4");
         testeq("\u007FA2\bB1\bB2\bB3\bB4",undo_patch);
         var patch5c = test.convertPatch3cTo5c(undo_patch,"Bob");
         test.addPatch5c(patch5c);
         testeq("Text",test.getText1());
-        testeq("T  e  x  t  ",test.getHili3("01A3"));
+        testeq("T00e00x00t00",test.getHili3("01A3"));
         log("undo test OK");
     }
 
@@ -888,7 +897,7 @@ CT.selfCheck = function () {
         
         var hili = test.getHili3(line);
         
-        testeq("LB aB T  e  x  t B",hili);
+        testeq("LB0aB0T00e00x00t0B",hili);
         
         log("complex diff test OK");
     }
@@ -971,7 +980,7 @@ CT.selfCheck = function () {
         function pull (a,b) {
             var repoa = repos[a];
             var repob = repos[b];
-            var base = CT.commonWeft2(repoa.getWeft2(),repob.getWeft2());
+            var base = CT.getCommonWeft2(repoa.getWeft2(),repob.getWeft2());
             var patch_b2a = repob.getTail5c(base);
             repoa.addPatch5c(patch_b2a);
         }
@@ -1062,20 +1071,20 @@ CT.selfCheck = function () {
     
     // incorrect input tests
 
-    try{
+    //try{
         testStatics();
         testBasicCt();
         testNewLine();
         testBracing();
         testDiff();
-        testUndo();
-        testComplexDiff();
+        //testUndo();
+        //testComplexDiff();
         testConcurrency();
         testMultiplicationTable();
         //testPerformance();
-    }catch(e){
-        log(e);
-    }
+    //}catch(e){
+    //    log(e);
+    //}
 
 }
 
