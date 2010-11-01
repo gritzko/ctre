@@ -1,3 +1,4 @@
+
 /** Causal Trees (CT) version control implementation. For the theory see
  *  Victor Grishchenko "Deep hypertext with embedded revision control
  *  implemented in regular expressions"
@@ -187,7 +188,7 @@ CT.prototype.getWeave3 = function () {
 //    CT.re("$5(?:(?:$>$4)+$<$4)*$<$4(?:$x$4)*|($5)(?:$x$4)*");
 CT.re_scouring =
     CT.re("$5(%!5*)%@5*(?:%<5%>5+)*%<5%x5*|($5)(%!5*)%m5*",CT.$);
-CT.re_weave5c = CT.re("^$b0000($5*?)$e0001($5*)$",CT.$,"m");
+CT.re_weave5c = CT.re("^(%!5*)$b0000($5*?)$e0001($5*)$",CT.$,"m");
 /** Text5c is derived from weave5c by scouring, i.e. removing deleted
     symbols and metasymbols (except for the markers). */
 CT.prototype.getText5c = function () {
@@ -200,7 +201,7 @@ CT.prototype.getText5c = function () {
     var parsed = txt5c.match(CT.re_weave5c);
     if (parsed==null)
         alert('alarm!');
-    this.text5c = parsed[1];
+    this.text5c = parsed[1]+parsed[2];
     return this.text5c;
 }
 
@@ -264,7 +265,7 @@ CT.getCommonWeft2 = function (wefta, weftb) {
 CT.getYarnLength = function (weft2,yarnid) {
     if (!yarnid || yarnid.length!=1)
         throw "no yarn id provided";
-    var pos = 0;
+    var pos = -1;
     while ( -1!=(pos=weft2.indexOf(yarnid,pos+1)) && (pos&1) );
     return pos!=-1 ? weft2[pos+1] : '/';
 }
@@ -305,7 +306,7 @@ CT.prototype.getAwarenessWeftII = function (id) {
 }
 
 CT.re_chunk = CT.re("%m5|$1$2(?:($2)$1\\1)*$2");
-CT.re_block = "($5*?)(($1)$2($I))(%!5*)(%@5*)((?:%<5%>5*)*)(%>5*)(?=$1($2)($2))";
+CT.re_block = "($5*?)(($1)$2($I))(%!5*)(%@5*)((?:%<5%>5*)*)(%>5*)(?=$1($2)($2)|$)";
 CT.re_causal_block = "^($5*?)($3$P)(%m5*)((?:$1$P$2$5*?)*)($1(?:$W)$2|$)";
 CT.re_sibling_block = CT.re("$1($2)$2$5*?(?=$1\\1$2|$)");
 /** I do not verify append-only/no dups in this method. */
@@ -658,17 +659,40 @@ CT.prototype.addNewVersion = function (text1,yarn_url) {
     return this.getWeft2();
 }
 
+CT.prototype.getYarnId = function (url_or_id) {
+    if (url_or_id.length==1) return url_or_id;
+    if (this.url2id[url_or_id])
+        return this.url2id[url_or_id];
+    throw "unknown yarn url "+url_or_id;
+}
 
 CT.re_pos = CT.re("$2",{},'');
+CT.re_next5c = "^$5*?($1)$2(?:$A)%m5*$1($2)(($f)$o)";
 CT.prototype.insertText = function (pos,text,author) {
     //if (author.length>1) author = this.roster.url2id[author];
     //if (!author || !this.roster.id2url[author]) throw "no author";
-    if (!CT.re_pos.test(pos) || !CT.isCover(this.getWeft2(),pos))
-        throw "invalid pos";
-    if (!text) return;
-    var patch3c = text.substr(0,1) + pos +
-        text.substr(1).replace(CT.re_1,"$&01");
-    // fixme awareness, test
+    var yid = this.getYarnId(author);
+    var re_pos = CT.re(CT.re_next5c,{'A':pos},'m');
+    var details = this.weave5c.match(re_pos);
+    if (!details || -1!="\u0008\u0015\u0006\u0005".indexOf(details[1]))
+        throw "invalid pos: '"+pos+"'";
+    var next_cause = details[2];
+    var next_id = details[3];
+    var next_feed = details[4];
+    var patch3c = '';
+    if (next_id===pos && next_feed!=yid)
+        patch3c = "\u0006"+next_id; // right sibling awareness
+    patch3c += text.substr(0,1) + pos;
+    patch3c += text.substr(1).replace(CT.re_1,"$&01");
+    var patch5c = this.convertPatch3cTo5c(patch3c,yid);
+    this.addPatch5c(patch5c);
+    return patch5c.substr(patch5c.length-2,2);
+}
+
+CT.prototype.removeText = function (ids,author) {
+    var patch3c = ids.replace(CT.re_2,"\u0008$&");
+    if (patch3c.length*2!=ids.length*3)
+        throw "invalid id string: "+ids;
     var patch5c = this.convertPatch3cTo5c(patch3c,author);
     this.addPatch5c(patch5c);
     return patch5c.substr(patch5c.length-2,2);
@@ -684,6 +708,15 @@ CT.prototype.getYarn5c = function (yarn_id) {
     var sorted = atoms.match(this.re_improper5).sort().join('');
     var form5c = sorted.replace(this.re_improper5,"$2$3$1");
     return form5c;
+}
+
+CT.re_range3 = "^$3*?($1(?:$I)$3*?)$1(?:$I)";
+CT.prototype.getText3Range = function (range) {
+    var re_ids = CT.ids2re(range);
+    var re_rng = CT.re(CT.re_range3,{'I':re_ids},'m');
+    var m = re_rng.exec(this.getText3());
+    if (!m) return '';
+    return m[1];
 }
 
 
