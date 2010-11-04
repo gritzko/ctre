@@ -1,4 +1,62 @@
-    ctre - distributed revision control
+                  
+                  CTRE
+
+                /sitro/
+
+    distributed    revision    control
     implemented in regular expressions
+
+      see ws10.pdf for the theory, or
+http://portal.acm.org/citation.cfm?id=1832772.1832777#
+
+                 FILES
+
+    ctre.js   -   revision control engine
+    test.html  - ctre.js in-browser tests
+    demo4.html - ctre.js hello-world demo
+    dhyt.js  -  web browser (HTML) bridge
+
+               PRINCIPLES
+
+  The technical agenda  of the project is to
+  achieve  real-time  collaborative  editing
+  features (Etherpad, Google Wave)  together
+  with the  ability of  distributed revision
+  control (like in the git), branches etc.
+
+  The vision behind the technical details is
+  the idea of deep hypertext, whose roots go
+  all the way back to 60s and even 40s  when
+  such great  thinkers as Vannevar Bush  and
+  Theodor Holm Nelson  dreamed  up  lots  of
+  exciting stuff. With the deep hypertext, a
+  user is able to address  particular pieces
+  in a changing text,  compare revisions and
+  retrieve past versions, etc etc.
+
+  The theory  that  connects  the vision and
+  the technical  agenda  is quite  original.
+  It is a proposed  successor to  the unholy 
+  Operational Transformations herecy,  named
+  Causal  Trees.  The mainstay  of the CT is
+  that every character has an identity.
+  Those characters are assembled into a text
+  using a scheme based on  some relativistic
+  space-time  cause-effect  concepts.   Read
+  the article for the details.
+
+  A  spicy detail is that  most (if not all)
+  heavylifting is done by  regexes,  regular
+  expressions. Parsing, mutating, searching,
+  everything. Actually, vanilla regexes grew
+  too  monstrous  over time, so I (gritzko)
+   have introduced a macro language on top
+       of regexes to write my formulas.
+         That is a very special sort
+           of witchcraft&wizardry,
+              so read, hack and
+
+                   ENJOY!
+
 
 
