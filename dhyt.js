@@ -6,13 +6,7 @@ function DHYT (body_weave,headers_weave,authors,default_author) {
     this.body = new CT(body_weave,authors);
     this.head = new CT(headers_weave,authors);
     this.author = default_author;
-}
-
-DHYT.re_prev3 = "$3*?.($2).$P";
-DHYT.prototype.getPrev = function (pos) {
-    var re_seek = CT.re(DHYT.re_prev3,{'P':pos},'m');
-    var m = this.ct.getText3.match(re_seek);
-    return m && m[1];
+    this.sel0 = this.sel1 = "00";
 }
 
 DHYT.prototype.addHeader = function (name, value, range) {
@@ -25,17 +19,6 @@ DHYT.prototype.addHeader = function (name, value, range) {
     this.head.insertText("00",header,this.author);
 }
 
-DHYT.prototype.getSelection = function () {
-    return this.selection || "0000";
-}
-
-DHYT.prototype.selend = function () {
-    return this.getSelection().substr(2,2);
-}
-DHYT.prototype.selbeg = function () {
-    return this.getSelection().substr(0,2);
-}
-
 DHYT.prototype.indexOf = function (id) {
     var t3 = this.body.getText3();
     var pos = -1;
@@ -43,38 +26,31 @@ DHYT.prototype.indexOf = function (id) {
     return pos==-1 ? -1 : (pos-1)/3;
 }
 
-DHYT.prototype.rightFrom = function (id) {
-    var t3 = this.body.getText3();
-    var pos = this.indexOf(id);
-    if (pos==-1 || pos==t3.length/3-1)
-        return "01";
-    else
-        return t3.substr(pos*3+4,2);
-}
-
-DHYT.prototype.leftFrom = function (id) {
-    var t3 = this.body.getText3();
-    var pos = this.indexOf(id);
-    if (pos<1)
-        return "00";
-    else
-        return t3.substr(pos*3-2,2);
-}
-
 DHYT.prototype.insertText = function (text) {
     if (!text) return;
-    var posid = this.leftFrom(this.selend());
-    var yt = this.body.insertText(posid,text,this.author);
-    if (posid!="00")
-        this.selection = this.selend()+this.selend();
-    else
-        this.selection = this.rightFrom(yt)+this.rightFrom(yt);
+    var before = this.body.getNextAtom2(this.sel1,true);
+    var after = this.body.getNextAtom2(before);
+    if (this.sel1!=this.sel0)
+        this.body.eraseText(this.sel0+this.sel1);
+    this.body.insertText(before,text,this.author);
+    this.sel0 = this.sel1 = after;
 }
 
-DHYT.prototype.removeText = function (back) { // fixme dead selection
-    var range3 = this.body.getText3Range(this.getSelection());
-    var ids = range3.replace(CT.re_3,"$2");
-    this.body.removeText(ids,this.author);
+DHYT.prototype.eraseText = function (is_backspace) {
+    if (this.sel0===this.sel1) {
+        if (is_backspace)
+            this.sel0 = this.body.getNextAtom2(this.sel1,true);
+        else
+            this.sel1 = this.body.getNextAtom2(this.sel0);
+    }
+    this.body.eraseText(this.sel0+this.sel1,this.author);
+    this.sel0 = this.sel1 = this.body.getNextAtom2(this.sel1);
+}
+
+DHYT.prototype.moveSelection = function (is_left,is_shift_on) {
+    this.sel1 = this.body.getNextAtom2(this.sel1,is_left);
+    if (!is_shift_on)
+        this.sel0 = this.sel1;
 }
 
 DHYT.re_3hili_span = CT.re("$1($2)(?:$1\\1)*");
@@ -119,7 +95,7 @@ DHYT.prototype.markByHeaders = function () {
 }
 
 DHYT.prototype.markSelection = function () {
-    this.addMark("selection",undefined,this.getSelection());
+    this.addMark("selection",undefined,this.sel0+this.sel1);
 }
 
 DHYT.prototype.addMark = function (name, value, range) {
@@ -232,6 +208,7 @@ DHYT.selfCheck = function () {
     var authors = {'A':"Alice",'B':"Bob",'\uffff':"Markup"};
     var dh = new DHYT('','',authors,"Alice");
     dh.insertText("Test");
+    testeq("01",dh.sel0);
     dh.addHeader("Bold",'',"A0A1");
     var text = dh.body.getText1();
     testeq("Test",text);
@@ -240,12 +217,14 @@ DHYT.selfCheck = function () {
     //testeq("<div><p><span class='bold'>T</span><span class=''>est</span></p></div>",html);
     loghtml(html);
     //testeq("T",dh.ct.getText1Range("A0A1"));
-    dh.selection = "A2A3";
+    dh.moveSelection(true,false);
+    dh.moveSelection(true,true);
+    testeq("A3",dh.sel0);
+    testeq("A2",dh.sel1);
     loghtml(dh.toHTML());
     dh.author = "Bob";
-    dh.removeText();
+    dh.eraseText();
     loghtml(dh.toHTML());
-    dh.selection = "A3A3"; // fixme: dead range
     dh.insertText('x');
     loghtml(dh.toHTML());
 }

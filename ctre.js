@@ -193,10 +193,6 @@ CT.re_weave5c = CT.re("^(%!5*)$b0000($5*?)$e0001($5*)$",CT.$,"m");
     symbols and metasymbols (except for the markers). */
 CT.prototype.getText5c = function () {
     if (this.text5c) return this.text5c;
-    /*var parse = this.weave5c.match(this.re_weave5c);
-    if (!parse) throw "weave format error";
-    var body = parse[1] || '';
-    var stash = parse[2] || '';*/
     var txt5c = this.weave5c.replace(CT.re_scouring,"$1$3$2");
     var parsed = txt5c.match(CT.re_weave5c);
     if (parsed==null)
@@ -525,8 +521,6 @@ CT.prototype.getYarnId = function (url_or_id) {
 CT.re_pos = CT.re("$2",{},'');
 CT.re_next5c = "^$5*?($1)$2(?:$A)%m5*$1($2)(($f)$o)";
 CT.prototype.insertText = function (pos,text,author) {
-    //if (author.length>1) author = this.roster.url2id[author];
-    //if (!author || !this.roster.id2url[author]) throw "no author";
     var yid = this.getYarnId(author);
     var re_pos = CT.re(CT.re_next5c,{'A':pos},'m');
     var details = this.weave5c.match(re_pos);
@@ -545,18 +539,33 @@ CT.prototype.insertText = function (pos,text,author) {
     return patch5c.substr(patch5c.length-2,2);
 }
 
-CT.prototype.removeText = function (ids,author) {
+/** range bounds may point at dead atoms. */
+CT.prototype.eraseText = function (range4,author) {
+    var range3 = this.getText3Range(range4);
+    var ids = range3.replace(CT.re_3,"$2");
     var patch3c = ids.replace(CT.re_2,"\u0008$&");
-    if (patch3c.length*2!=ids.length*3)
+    if (this.leery) if (patch3c.length*2!=ids.length*3)
         throw "invalid id string: "+ids;
     var patch5c = this.convertPatch3cTo5c(patch3c,author);
     this.addPatch5c(patch5c);
-    return patch5c.substr(patch5c.length-2,2);
 }
 
+CT.re_mark_pos = "(?:$1($2))?$!02(?:$1$P)?(?:$1($2))?";
+/** Returns an id of a currently visible atom which is the left (right)
+  * neighbor of the atom <i>aid</i> (aid may be a deleted atom as well). */
+CT.prototype.getNextAtom2 = function (aid,is_prev) {
+    if (this.leery) if (aid.length!=2 || !aid.match(CT.re_2))
+        throw "invalid pos";
+    var clone = this.clone();
+    var patch5c = '\u0005'+aid+"02";
+    clone.addPatch5c(patch5c);
+    var re = CT.re(CT.re_mark_pos,{'P':aid},'m');
+    var m = clone.getText3().match(re);
+    return (m && m[is_prev?1:2]) || (is_prev?"00":"01");
+}
 
 CT.prototype.re_pickyarn = "($3)($Y.)|$5";
-CT.prototype.re_improper5 = /(..)(.)(..)/mg;
+CT.prototype.re_improper5 = CT.re("($2)($1)($2)");
 CT.prototype.getYarn5c = function (yarn_id) {
     if (this.leery && yarn_id.length!=1) throw "invalid yarn_id";
     var re = CT.re(this.re_pickyarn,{'Y':yarn_id});
@@ -710,6 +719,7 @@ CT.selfCheck = function () {
 
         var w5c_test = test.getVersion(v_test);
         w5c_test.addNewVersion("Text","Carol");
+        testeq("A3",w5c_test.getNextAtom2("A2",false));
         var p5c_tekxt = w5c_test.getTail5c(v_test);
         test.addPatch5c(p5c_tekxt);
         testeq("01A3B1C2",test.getWeft2());
