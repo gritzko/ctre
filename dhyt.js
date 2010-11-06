@@ -196,11 +196,17 @@ DHYT.prototype.toHTML = function (range) {
 DHYT.selfCheck = function () {
     var testeq = CT.testeq;
     var log = CT.log;
-    function loghtml (html) {
+    function loghtml (html,test) {
         if (window) {
             var div = document.createElement("div");
             document.body.appendChild(div);
             div.innerHTML = html;
+            if (test) {
+                var span = document.createElement("span");
+                span.setAttribute("style","color:grey; margin-left: 20px;");
+                div.appendChild(span);
+                span.innerHTML = test;
+            }
         } else
             console.log(rec+"\n");
     }
@@ -215,16 +221,16 @@ DHYT.selfCheck = function () {
     testeq("Bold:A0A1\n",dh.head.getText1());
     var html = dh.toHTML();
     //testeq("<div><p><span class='bold'>T</span><span class=''>est</span></p></div>",html);
-    loghtml(html);
+    loghtml(html,"Test|");
     //testeq("T",dh.ct.getText1Range("A0A1"));
     dh.moveSelection(true,false);
     dh.moveSelection(true,true);
     testeq("A3",dh.sel0);
     testeq("A2",dh.sel1);
-    loghtml(dh.toHTML());
+    loghtml(dh.toHTML(),"Te|s|t");
     dh.author = "Bob";
     dh.eraseText();
-    loghtml(dh.toHTML());
+    loghtml(dh.toHTML(),"Te|t");
     dh.insertText('x');
-    loghtml(dh.toHTML());
+    loghtml(dh.toHTML(),"Te<u>x</u>|t");
 }
