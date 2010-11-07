@@ -66,7 +66,12 @@
                 var se = document.getElementById('sel');
                 var ft = document.getElementById('weft');
                 var dh = window.dh;
-                switch (ev.keyCode) {
+                if (ev.ctrlKey) {
+                    switch (ev.charCode) {
+                    case 115: dh.base_version = dh.body.getWeft2(); break;
+                    }
+                } else {
+                    switch (ev.keyCode) {
                     case 37: dh.moveSelection(true,ev.shiftKey); break;
                     case 39: dh.moveSelection(false,ev.shiftKey); break;
                     case 13: dh.insertText('\n'); break; // todo indent/lists
@@ -77,6 +82,7 @@
                             return;
                         var symbol = String.fromCharCode(ev.charCode);
                         dh.insertText(symbol);
+                    }
                 }
                 we.innerHTML = dh.toHTML();
                 se.innerHTML = dh.sel0+".."+dh.sel1;

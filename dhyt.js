@@ -7,6 +7,7 @@ function DHYT (body_weave,headers_weave,authors,default_author) {
     this.head = new CT(headers_weave,authors);
     this.author = default_author;
     this.sel0 = this.sel1 = "01";
+    this.base_version = "01";
 }
 
 DHYT.prototype.addHeader = function (name, value, range) {
@@ -58,7 +59,7 @@ DHYT.prototype.moveSelection = function (is_left,is_shift_on) {
 
 DHYT.re_3hili_span = CT.re("$1($2)(?:$1\\1)*");
 DHYT.prototype.markHili = function () {
-    var hili = this.body.getHili3("01");
+    var hili = this.body.getHili3(this.base_version);
     var text3 = this.body.getText3();
     var m = [];
     var re = DHYT.re_3hili_span;
