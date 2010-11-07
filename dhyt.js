@@ -80,7 +80,7 @@ DHYT.prototype.markStructurals = function () {
         var end_id = li==text1.length ? "01" : text3.substr(li*3+1,2);
         var ti = m.index+(m[1]?m[1].length:0);
         var txt_id = ti==text1.length ? "01" : text3.substr(ti*3+1,2);
-        this.addMark("struct",m[1]?m[1]:'',beg_id+end_id);
+        this.addMark("struct",' '+(m[1]?m[1]:''),beg_id+end_id);
         if (beg_id!=txt_id)
             this.addMark("hide",undefined,beg_id+txt_id);
     }
@@ -100,7 +100,7 @@ DHYT.prototype.markSelection = function () {
 
 DHYT.prototype.addMark = function (name, value, range) {
     //var offset = this.marks.length*2 + '0'.charCodeAt(0);
-    var mark_obj = ({"name":name,"value":value,"range":range,"open":false});
+    var mark_obj = ({"name":name,"value":value,"range":range,"open":0});
     var a_id = String.fromCharCode(0xffff,this.mark_cnt++);
     var b_id = String.fromCharCode(0xffff,this.mark_cnt++);
     var a_mark5c = '\u0005'+range.substr(0,2) + a_id;
@@ -115,6 +115,9 @@ DHYT.prototype.addMark = function (name, value, range) {
     this.marks5c.push(aware);
 }*/
 
+DHYT.html_middle_tags = {' ':"</p><p>",'*':"</li><li>"};
+DHYT.html_open_tags = {' ':"<p>",'*':"<ul><li>"};
+DHYT.html_close_tags = {' ':"</p>",'*':"</li></ul>"};
 DHYT.re_marks = CT.re("\5([^\5]*)");
 DHYT.prototype.toHTML = function (range) {
     this.marks5c = [];
@@ -123,6 +126,8 @@ DHYT.prototype.toHTML = function (range) {
     range = range || "0001";
     //this.markAwareness();
     // 1. compile the marks
+    // 1.f. wikitext stucturals
+    this.markStructurals();
     // 1.a. header marks
     this.markByHeaders();
     // 1.b. selection marks
@@ -133,8 +138,6 @@ DHYT.prototype.toHTML = function (range) {
     // this.markSyntax();
     // 1.e. visible range marks
     //this.markVisibleRange (range);
-    // 1.f. wikitext stucturals
-    this.markStructurals();
     // 2. add annotations to the weave
     var ct_marked = this.body.clone();
     // todo save mark-feed - awareness
@@ -147,24 +150,32 @@ DHYT.prototype.toHTML = function (range) {
     var stack = '';
     var classes = '';
     var attributes = '';
+    var span_num = 1;
     // 3. intersperse text and markup
     function addMarkup(chunk,span,offset,text) {
         var id = text3_marked.substr(offset*3+1,2);
         var mark = marx[id];
-        if (name==="struct") { // change the *#" struct stack
+        var html = [];
+        if (mark.name==="struct") { // change the *#" struct stack
+            if (mark.open)
+                return '';
+            mark.open = span_num;
             var old=stack;
             var neu=mark.value;
-            while (old[0]==neu[0]) {
-                old=old.substr(1);
-                neu=neu.substr(1);
+            if (old==neu) {
+                var inner = old[old.length-1];
+                html.push(DHYT.html_middle_tags[inner]);
+            } else {
+                while (old.length && neu.length && old[0]==neu[0]) {
+                    old=old.substr(1);
+                    neu=neu.substr(1);
+                }
+                for(var i=old.length-1; i>=0; i--)
+                    html.push(DHYT.html_close_tags[old[i]]);
+                for(var i=0; i<neu.length; i++)
+                    html.push(DHYT.html_open_tags[neu[i]]);
+                stack = mark.value;
             }
-            for(var i=old.length-1; i>=0; i--)
-                html.push(DHYT.html_close_tags[old[i]]);
-            for(var i=0; i<neu.length; i++)
-                html.push(DHYT.html_open_tags[neu[i]]);
-            stack = mark.value;
-            if (stack)
-                html.push(DHYT.html_add_tags[stack[stack.length-1]]);
         } else {
             var class_str = undefined;
             var att_str = undefined;
@@ -173,20 +184,28 @@ DHYT.prototype.toHTML = function (range) {
             else
                 class_str = mark.name+' ';
             if (mark.open) {
-                mark.open=false;
+                if (mark.open==span_num) {
+                    html.push("<s class=\""+classes+"\" "+attributes+"></s>");
+                    span_num++;
+                }
+                mark.open=0;
                 if (class_str)
                     classes = classes.replace(class_str,'');
                 if (att_str)
                     attributes = attributes.replace(att_str,'');
             } else {
-                mark.open=true;
+                mark.open=span_num;
                 if (class_str)
                 	classes = class_str + classes;
                 if (att_str)
                     attributes = att_str + attributes;
             }
-        } // todo: unnecessary empty spans do: mark.open=span_num
-        return "<s class=\""+classes+"\" "+attributes+">"+span+"</s>";
+        }
+        if (span) {
+            html.push("<s class=\""+classes+"\" "+attributes+">"+span+"</s>");
+            span_num++;
+        }
+        return html.join('');
     }
     var html = text1_marked.replace(DHYT.re_marks,addMarkup);
     return html;
@@ -233,4 +252,8 @@ DHYT.selfCheck = function () {
     loghtml(dh.toHTML(),"Te|t");
     dh.insertText('x');
     loghtml(dh.toHTML(),"Te<u>x</u>|t");
+    
+    dh.moveSelection();
+    dh.insertText("\n*Line1\n*Line 2");
+    loghtml(dh.toHTML(),"Te<u>x</u>t<br/><u> Line1<br/> Line2|");
 }
