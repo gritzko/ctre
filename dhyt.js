@@ -6,7 +6,7 @@ function DHYT (body_weave,headers_weave,authors,default_author) {
     this.body = new CT(body_weave,authors);
     this.head = new CT(headers_weave,authors);
     this.author = default_author;
-    this.sel0 = this.sel1 = "00";
+    this.sel0 = this.sel1 = "01";
 }
 
 DHYT.prototype.addHeader = function (name, value, range) {
@@ -31,7 +31,7 @@ DHYT.prototype.insertText = function (text) {
     var before = this.body.getNextAtom2(this.sel1,true);
     var after = this.body.getNextAtom2(before);
     if (this.sel1!=this.sel0)
-        this.body.eraseText(this.sel0+this.sel1);
+        this.body.eraseText(this.sel0+this.sel1,this.author);
     this.body.insertText(before,text,this.author);
     this.sel0 = this.sel1 = after;
 }
@@ -43,14 +43,17 @@ DHYT.prototype.eraseText = function (is_backspace) {
         else
             this.sel1 = this.body.getNextAtom2(this.sel0);
     }
-    this.body.eraseText(this.sel0+this.sel1,this.author);
-    this.sel0 = this.sel1 = this.body.getNextAtom2(this.sel1);
+    var range = this.body.eraseText(this.sel0+this.sel1,this.author);
+    this.sel0 = this.sel1 = range.substr(2,2);
 }
 
 DHYT.prototype.moveSelection = function (is_left,is_shift_on) {
-    this.sel1 = this.body.getNextAtom2(this.sel1,is_left);
+    var next = this.body.getNextAtom2(this.sel1,is_left);
+    this.sel1 = next==="00" ? this.sel1 : next;
     if (!is_shift_on)
         this.sel0 = this.sel1;
+    if (CT.leery) if (!this.body.getAtom5c(this.sel0) || !this.body.getAtom5c(this.sel1))
+        throw "invalid selection";
 }
 
 DHYT.re_3hili_span = CT.re("$1($2)(?:$1\\1)*");
@@ -69,12 +72,13 @@ DHYT.prototype.markHili = function () {
     }
 }
 
-DHYT.re_line = new RegExp("^([#\\*\\\"]*).*?$","gm");
+DHYT.re_line = /([#\*\"]*)[^\n]*\n?/gm;
 DHYT.prototype.markStructurals = function () {
     var text1 = this.body.getText1();
     var text3 = this.body.getText3();
     var m;
-    while (m=DHYT.re_line.exec(text1)) {
+    DHYT.re_line.lastIndex = 0;
+    while ((m=DHYT.re_line.exec(text1)) && m[0]) {
         var beg_id = text3.substr(m.index*3+1,2);
         var li = DHYT.re_line.lastIndex;
         var end_id = li==text1.length ? "01" : text3.substr(li*3+1,2);
@@ -83,6 +87,7 @@ DHYT.prototype.markStructurals = function () {
         this.addMark("struct",' '+(m[1]?m[1]:''),beg_id+end_id);
         if (beg_id!=txt_id)
             this.addMark("hide",undefined,beg_id+txt_id);
+        if (!m[0]) m.index++; //?
     }
 }
 
@@ -96,6 +101,7 @@ DHYT.prototype.markByHeaders = function () {
 
 DHYT.prototype.markSelection = function () {
     this.addMark("selection",undefined,this.sel0+this.sel1);
+    this.addMark("selend",undefined,this.sel1+this.sel1);
 }
 
 DHYT.prototype.addMark = function (name, value, range) {
@@ -202,7 +208,10 @@ DHYT.prototype.toHTML = function (range) {
             }
         }
         if (span) {
-            html.push("<s class=\""+classes+"\" "+attributes+">"+span+"</s>");
+            var from = text3_marked.substr((offset+1)*3+1,2);
+            var to = offset+span.length<text3_marked.length ? 
+                text3_marked.substr((offset+span.length)*3+1,2) : "01";
+            html.push("<s title='",from,to,"' class=\"",classes,"\" ",attributes,">",span,"</s>");
             span_num++;
         }
         return html.join('');

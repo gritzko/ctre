@@ -1,0 +1,96 @@
+<html>
+    <head>
+        <style>
+            div {
+                margin: 4px;
+            }
+            s{
+                border: 1px;
+            }
+            s.Bold {
+                font-weight: bold;
+            }
+            s:hover {
+                border: 1px dotted #308;
+            }
+            s[in='A']{
+                background: #afa;
+            }
+            s[in='B']{
+                background: #aaf;
+            }
+            s[rm='A'] {
+                text-decoration: line-through;
+                color: #afa;
+            }
+            s[rm='B'] {
+                text-decoration: line-through;
+                color: #aaf;
+            }
+            s[in='0']{
+                background: #fff;
+            }
+            s[rm='0']{
+                text-decoration: none;
+            }
+            s.hide {
+                display: none;
+            }
+            s.selection {
+                background: #88f;
+            }
+            s.selend {
+                border-right: 1px solid blue;
+            }
+        </style>
+        <script type="text/javascript" src="stacktrace.js"></script>
+        <script type="text/javascript" src="ctre.js"></script>
+        <script type="text/javascript" src="dhyt.js"></script>
+        <script type="text/javascript">
+
+            window.onload = function () {
+                window.captureEvents(Event.KeyPress);
+                var authors = {'A':"Alice",'B':"Bob",'\uffff':"Markup"};
+                var dh = new DHYT('','',authors,"Alice");
+                dh.insertText("Test");
+                dh.addHeader("Bold",'',"A0A1");
+                dh.author = "Bob";
+                window.dh = dh;
+                var we = document.getElementById('weirditor');
+                we.innerHTML = dh.toHTML();
+                window.onkeypress = window.oninput;
+            }
+
+            window.oninput = function (ev) {
+                var we = document.getElementById('weirditor');
+                var se = document.getElementById('sel');
+                var ft = document.getElementById('weft');
+                var dh = window.dh;
+                switch (ev.keyCode) {
+                    case 37: dh.moveSelection(true,ev.shiftKey); break;
+                    case 39: dh.moveSelection(false,ev.shiftKey); break;
+                    case 13: dh.insertText('\n'); break; // todo indent/lists
+                    case 8: dh.eraseText(true); break;
+                    case 46: dh.eraseText(); break;
+                    default:
+                        if (ev.charCode<32)
+                            return;
+                        var symbol = String.fromCharCode(ev.charCode);
+                        dh.insertText(symbol);
+                }
+                we.innerHTML = dh.toHTML();
+                se.innerHTML = dh.sel0+".."+dh.sel1;
+                ft.innerHTML = dh.body.getWeft2();
+                ev.preventDefault();
+            }
+
+        </script>
+    </head>
+    <body>
+        <img src="http://bouillon.math.usu.ru/files/lessismore.png" style="float:right">
+        <div id='weirditor'>
+        </div>
+        <div id='sel' style="position: absolute; bottom: 0px; left: 10pt;"></div>
+        <div id='weft' style="position: absolute; bottom: 0px; left: 50%;"></div>
+    </body>
+</html>
