@@ -124,9 +124,9 @@ DHYT.prototype.addMark = function (name, value, range) {
     this.marks5c.push(aware);
 }*/
 
-DHYT.html_middle_tags = {' ':"</p><p>",'*':"</li><li>"};
-DHYT.html_open_tags = {' ':"<p>",'*':"<ul><li>"};
-DHYT.html_close_tags = {' ':"</p>",'*':"</li></ul>"};
+DHYT.html_middle_tags = {' ':"</p><p>",'*':"</li><li>",'#':"</li><li>"};
+DHYT.html_open_tags = {' ':"<p>",'*':"<ul><li>",'#':"<ol><li>"};
+DHYT.html_close_tags = {' ':"</p>",'*':"</li></ul>",'#':"</li></ol>"};
 DHYT.re_marks = CT.re("\5([^\5]*)");
 DHYT.prototype.toHTML = function (range) {
     this.marks5c = [];
@@ -183,6 +183,8 @@ DHYT.prototype.toHTML = function (range) {
                     html.push(DHYT.html_close_tags[old[i]]);
                 for(var i=0; i<neu.length; i++)
                     html.push(DHYT.html_open_tags[neu[i]]);
+                if (mark.value && stack.indexOf(mark.value)==0)
+                    html.push(DHYT.html_middle_tags[mark.value[mark.value.length-1]]);
                 stack = mark.value;
             }
         } else {
