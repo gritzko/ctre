@@ -59,7 +59,7 @@ DHYT.prototype.moveSelection = function (is_left,is_shift_on) {
 
 DHYT.re_3hili_span = CT.re("$1($2)(?:$1\\1)*");
 DHYT.prototype.markHili = function () {
-    var hili = this.body.getHili3(this.base_version);
+    var hili = this.body.getHili3(this.base_version,true);
     var text3 = this.body.getText3();
     var m = [];
     var re = DHYT.re_3hili_span;
@@ -106,6 +106,8 @@ DHYT.prototype.markSelection = function () {
 }
 
 DHYT.prototype.addMark = function (name, value, range) {
+    if (CT.leery) if (range.length!=4)
+        throw "invalid range";
     //var offset = this.marks.length*2 + '0'.charCodeAt(0);
     var mark_obj = ({"name":name,"value":value,"range":range,"open":0});
     var a_id = String.fromCharCode(0xffff,this.mark_cnt++);

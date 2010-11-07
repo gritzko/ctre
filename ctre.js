@@ -53,7 +53,7 @@ CT.$.__proto__ = CT.$chars;
  notation RegExp("abc"+x+"."+y,"g") etc. Thus, I use template regexes
  defined as "abc$x.$y". */
 CT.fill = function (template,values) {
-    if (!template.replace)
+    if (!template || !template.replace)
         throw "supply a template string";
     function replacer(match,letter,twoletter) {
         var code = letter || twoletter;
@@ -293,6 +293,8 @@ CT.re_sibling_block = CT.re("$1($2)$2$5*?(?=$1\\1$2|$)");
 /** I do not verify append-only/no dups in this method. */
 CT.prototype.addPatch5c = function (patch5c) {
     if (!patch5c) return;
+    if (CT.leery) if (patch5c.replace(CT.re_5,''))
+        throw "malformed patch";
     this.getWeft2();
     var add = {};
     var rebubbling = [];
@@ -314,7 +316,8 @@ CT.prototype.addPatch5c = function (patch5c) {
     function insert (all,pre,atom,sy,id,mr,aw,rmun,un,nxpr,nxid) {
         var ret = [pre]; // TODO: case of undel
         var a = add[id];
-        if (!a && id==="01") return all; //fixme atoms after $e
+        if (!a && id==="01")
+            return all; //fixme atoms after $e
         ret.push(atom);
         if (!a) 
             throw "oops";
@@ -399,7 +402,7 @@ CT.prototype.getAtom5c = function (aid) {
 
 CT.re_vefi = CT.re("($2)($1)($2)");
 CT.prototype.getTail5c = function (weft2) {
-    var re_fre = CT.re(this.re_hist, {'V':CT.getFiltre(weft2,"li")});
+    var re_fre = CT.re(CT.re_hist, {'V':CT.getFiltre(weft2,"li")});
     var weave5cver = this.weave5c.replace(re_fre,"$2");
     if (!weave5cver) return '';
     var permut = weave5cver.replace(CT.re_5,"$3$1$2");
@@ -608,6 +611,7 @@ CT.re_white = "($1)(?:$F)|($1$f)$o";
 CT.re_mark = CT.re("($10)|($1$f)0");
 CT.re_weave3 = CT.re("$10$o%m3*|($3)(%!3*)%@3*(%x3*)");
 //CT.prototype.re_scour = CT.re("$3$Z*?$<  $Z*|($3$Z*)");
+CT.re_no_rm = CT.re("($1$f0)|($3)");
 CT.re_diff = CT.re([
                         "$X00%z3*?$<00%z3*",      // old, old deleted
                         "($X0)0%z3*?$<($f)$o%z3*",  // old, just deleted
@@ -616,13 +620,15 @@ CT.re_diff = CT.re([
                         "$X..%z3*?$<..%z3*",      // phantom (new, just deleted)
                         "($X..)%z3*"             // new, still alive
                     ].join('|'));
-CT.prototype.getHili3 = function (weft2) {
+CT.prototype.getHili3 = function (weft2,no_rm) {
     var w3 = this.getWeave3();
     var w3prep = w3.replace(CT.re_weave3,"$2$1$3");
     var re_paint_white = CT.re(CT.re_white,{'F':CT.getFiltre(weft2)});
     var spaced = w3prep.replace(re_paint_white,"$1$20");
     var marked = spaced.replace(CT.re_mark,"$1$20");
     var weave_hili = marked.replace(CT.re_diff,"$1$2"+"$3$4$5"+"$6"+"$7");
+    if (no_rm)
+        weave_hili = weave_hili.replace(CT.re_no_rm,"$1");
     return weave_hili;
 }
 
