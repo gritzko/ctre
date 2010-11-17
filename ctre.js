@@ -325,7 +325,7 @@ CT.prototype.addPatch5c = function (patch5c) {
         ret.push(a.aw,aw);
         ret.push(a.rm,rmun);
         ret.push(a.ch);
-        if (a.ch) if (a.ch.length>5 || nxpr==id) // todo optimize
+        if (a.ch) if (a.ch.length>5 || nxpr==id) // fixme optimize
             rebubbling.push(id); // risk N2, do red flags
         delete add[id];
         return ret.join('');
@@ -334,7 +334,7 @@ CT.prototype.addPatch5c = function (patch5c) {
     var weave5c = this.weave5c;
     while (weave5c.length!=this.weave5c.length+patch5c.length) {
         var ids = ["01"];
-        for (id in add)
+        for (var id in add)
             ids.push(id);
         if (ids.length>=prev_count)
             throw "patching failed";
@@ -358,8 +358,8 @@ CT.prototype.addPatch5c = function (patch5c) {
         }
         siblings.sort(weftIIorder);
         var ret = before+atom+meta+siblings.join('')+after;
-        if (match%5 || ret%5)
-            alert("alarm!");
+        if (match.length%5 || ret.length%5)
+            throw("patch messed up");
         return ret;
     }
     while (rebubbling.length) {
@@ -371,8 +371,16 @@ CT.prototype.addPatch5c = function (patch5c) {
             ( CT.re_causal_block, {'P':prntesc,'W':re_prnt_aw}, 'm' );
         this.weave5c = this.weave5c.replace(re_causal,rebubble);
         if (this.weave5c.length%5)
-            alert("alarm!");
+            throw("weave messed up");
     }
+}
+
+
+CT.re_find = "($5*?$M$2)($I)";
+CT.prototype.addFastMarks = function (ids) {
+    var re_id = CT.ids2re(ids+"01");
+    var re_f = CT.re(CT.re_find, {'I':re_id});
+    this.weave5c = this.weave5c.replace(re_f,"$1$2\u0005$2$2");
 }
 
 
@@ -395,8 +403,8 @@ CT.prototype.getVersion = function (weft2) {
 
 CT.re_atom5c = "$5*?($1$2$A)";
 CT.prototype.getAtom5c = function (aid) {
-    var re_find = CT.re(CT.re_atom5c,{'A':CT.escapeMeta(aid)},'m');
-    var m = this.weave5c.match(re_find);
+    var re_fnd = CT.re(CT.re_atom5c,{'A':CT.escapeMeta(aid)},'m');
+    var m = this.weave5c.match(re_fnd);
     return (m && m[1]) || '';
 }
 
@@ -441,7 +449,7 @@ CT.prototype.convertPatch3cTo5c = function (patch3c, yarn_url) {
 
 CT.re_f = "($Y.)|..";
 CT.weft2Covers = function (weft2, atom) {
-    var re_fd = CT.re(CT.re_f,{'Y':atom[0]});
+    var re_fd = CT.re(CT.re_f,{'Y':CT.escapeMeta(atom[0])});
     var cover = weft2.replace(re_fd,"$1");
     return cover && cover[1]>=atom[1];
 }
@@ -581,7 +589,7 @@ CT.prototype.re_pickyarn = "($3)($Y.)|$5";
 CT.prototype.re_improper5 = CT.re("($2)($1)($2)");
 CT.prototype.getYarn5c = function (yarn_id) {
     if (CT.leery && yarn_id.length!=1) throw "invalid yarn_id";
-    var re = CT.re(this.re_pickyarn,{'Y':yarn_id});
+    var re = CT.re(this.re_pickyarn,{'Y':CT.escapeMeta(yarn_id)});
     var atoms = this.weave5c.replace(re,"$2$1");
     var sorted = atoms.match(this.re_improper5).sort().join('');
     var form5c = sorted.replace(this.re_improper5,"$2$3$1");
@@ -753,6 +761,9 @@ CT.selfCheck = function () {
                test.getWeave5c());
         //testeq(1,test.compareWeft1("01A4B1","01A4C2"));
         testeq("01A3B1",test.getYarnAwarenessWeft2("B")); // awareness decl
+
+        w5c_test.addFastMarks("A2A1");
+        testeq("T\u0005ex\u0005t\u0005",w5c_test.getText1());
 
         log("basic functionality tests OK");
     }
