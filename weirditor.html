@@ -77,6 +77,7 @@
                     case 13: dh.insertText('\n'); break; // todo indent/lists
                     case 8: dh.eraseText(true); break;
                     case 46: dh.eraseText(); break;
+                    case 27: alert(we.innerHTML); break;
                     default:
                         if (ev.charCode<32)
                             return;
