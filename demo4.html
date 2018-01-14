@@ -27,7 +27,7 @@
                 }
             }
             function merge (from,to) {
-                var base = CT.commonWeft2
+                var base = CT.getCommonWeft2
                     (repos[from].getWeft2(),repos[to].getWeft2());
                 var patch = repos[from].getTail5c(base);
                 if (patch.length>0) {
@@ -45,9 +45,11 @@
                 var ct = new CT('',users);
                 for(var id in users) {
                     var div = document.getElementById(id);
-                    divs[id] = div;
-                    repos[id] = ct.clone();
-                    div.onkeyup = onkeyup;
+                    if (div) {
+                        divs[id] = div;
+                        repos[id] = ct.clone();
+                        div.onkeyup = onkeyup;
+                    }
                 }
                 setInterval(function(){merge('1','2');},1003);
                 setInterval(function(){merge('2','4');},1002);
